@@ -4,7 +4,10 @@ A GitHub Action that automates updating Nix packages in a centralized repository
 
 ## Features
 
-- Automatically updates `version`, `rev`, and `sha256` fields in Nix package files
+- Automatically updates `version`, `rev`, and hash fields in Nix package files
+- Supports both modern `hash` (SRI format) and legacy `sha256` fields
+- Supports `buildGoModule` packages with `vendorHash`
+- Handles `rev = "v${version}"` pattern (Nix interpolation)
 - Creates or updates pull requests with version bumps
 - Uses `nix-prefetch-github` for accurate hash calculation
 - Supports updating existing PRs when re-triggered
@@ -64,7 +67,30 @@ jobs:
 
 ### Expected Nix File Format
 
-The action expects package files at `pkgs/<package-name>/default.nix` with this structure:
+The action expects package files at `pkgs/<package-name>/default.nix`. It supports both modern and legacy hash formats:
+
+**Modern format (recommended):**
+
+```nix
+{ lib, fetchFromGitHub }:
+
+let
+  src = fetchFromGitHub {
+    owner = "owner";
+    repo = "my-package";
+    rev = "v0.1.0";
+    hash = "sha256-...";  # SRI format
+  };
+in
+mkDerivation {
+  pname = "my-package";
+  version = "0.1.0";
+  inherit src;
+  # ...
+}
+```
+
+**Legacy format:**
 
 ```nix
 { stdenv, fetchFromGitHub }:
@@ -80,20 +106,61 @@ stdenv.mkDerivation rec {
     sha256 = "sha256-...";
   };
 
-  # ... rest of derivation
+  # ...
 }
 ```
 
 The action will update:
 - `version` field (strips `v` prefix if present)
 - `rev` field (keeps original format)
-- `sha256` field (recalculated using `nix-prefetch-github`)
+- `hash` or `sha256` field (automatically detects which format is used)
 
 ## Version Handling
 
 The action automatically handles version prefixes:
 - Input `v1.0.0` → `version = "1.0.0"`, `rev = "v1.0.0"`
 - Input `1.0.0` → `version = "1.0.0"`, `rev = "1.0.0"`
+
+## buildGoModule Support
+
+The action supports Go packages built with `buildGoModule`:
+
+```nix
+{ lib, buildGoModule, fetchFromGitHub }:
+
+buildGoModule rec {
+  pname = "my-go-package";
+  version = "0.1.0";
+
+  src = fetchFromGitHub {
+    owner = "owner";
+    repo = "my-go-package";
+    rev = "v${version}";  # Nix interpolation
+    hash = "sha256-...";
+  };
+
+  vendorHash = "sha256-...";  # Go dependencies hash
+}
+```
+
+### Special Handling
+
+**`rev = "v${version}"` pattern:**
+When the `rev` field uses Nix interpolation (e.g., `"v${version}"`), the action will skip updating the `rev` field since it automatically updates when the `version` changes.
+
+**`vendorHash` field:**
+The `vendorHash` cannot be pre-calculated without running `nix build`. When the action detects a `vendorHash` field, it will:
+- Update `version` and source `hash` as normal
+- **Not** modify the `vendorHash`
+- Add a warning in the PR description with manual update instructions
+
+If Go dependencies have changed in the new version, you'll need to update `vendorHash` manually:
+1. Set `vendorHash = "";` or `vendorHash = lib.fakeHash;`
+2. Run `nix build .#<package-name>`
+3. Copy the correct hash from the error message
+4. Update `vendorHash` with the correct value
+
+If dependencies haven't changed, the existing `vendorHash` should still work.
 
 ## PR Behavior
 

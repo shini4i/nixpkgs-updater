@@ -33454,13 +33454,18 @@ async function commitAndPush(repoPath, branchName, message) {
 ;// CONCATENATED MODULE: ./src/nix-file-parser.ts
 /**
  * Regular expression patterns for extracting data from Nix files.
+ * Supports both legacy `sha256` and modern `hash` (SRI format) fields.
+ * Uses word boundaries to avoid matching similar fields like outputHash, cargoHash, etc.
  */
 const PATTERNS = {
-    owner: /owner\s*=\s*"([^"]+)"/,
-    repo: /repo\s*=\s*"([^"]+)"/,
-    version: /version\s*=\s*"([^"]+)"/,
-    rev: /rev\s*=\s*"([^"]+)"/,
-    sha256: /sha256\s*=\s*"([^"]+)"/,
+    owner: /\bowner\s*=\s*"([^"]+)"/,
+    repo: /\brepo\s*=\s*"([^"]+)"/,
+    version: /\bversion\s*=\s*"([^"]+)"/,
+    rev: /\brev\s*=\s*"([^"]+)"/,
+    // Match only standalone 'hash' or 'sha256' field names (not outputHash, cargoHash, etc.)
+    hash: /\b(hash|sha256)\s*=\s*"([^"]+)"/,
+    // Detect vendorHash presence (buildGoModule) - excludes comments by matching from line start
+    vendorHash: /^[^#\n]*\bvendorHash\s*=/m,
 };
 /**
  * Validates a GitHub owner/username format.
@@ -33496,15 +33501,16 @@ function validateGitHubRepo(repo) {
  * @param content - The Nix file content
  * @param pattern - The regex pattern to match
  * @param name - The name of the field (for error messages)
+ * @param groupIndex - The capture group index to extract (default: 1)
  * @returns The extracted value
  * @throws Error if the pattern is not found
  */
-function extractValue(content, pattern, name) {
+function extractValue(content, pattern, name, groupIndex = 1) {
     const match = content.match(pattern);
-    if (match?.[1] === undefined) {
+    if (match?.[groupIndex] === undefined) {
         throw new Error(`Could not find ${name} in Nix file`);
     }
-    return match[1];
+    return match[groupIndex];
 }
 /**
  * Parses a Nix package file and extracts relevant data.
@@ -33523,36 +33529,59 @@ function parseNixFile(content) {
     // Validate owner and repo to prevent command injection or unexpected repository access
     validateGitHubOwner(owner);
     validateGitHubRepo(repo);
+    const rev = extractValue(content, PATTERNS.rev, 'rev');
+    // Detect if rev uses ${version} interpolation (e.g., "v${version}")
+    const revUsesVersion = rev.includes('${version}');
+    // Detect if file contains vendorHash (buildGoModule packages)
+    const hasVendorHash = PATTERNS.vendorHash.test(content);
     return {
         owner,
         repo,
         version: extractValue(content, PATTERNS.version, 'version'),
-        rev: extractValue(content, PATTERNS.rev, 'rev'),
-        sha256: extractValue(content, PATTERNS.sha256, 'sha256'),
+        rev,
+        // Hash pattern has 2 groups: (1) field name, (2) value - we want the value
+        hash: extractValue(content, PATTERNS.hash, 'hash or sha256', 2),
+        revUsesVersion,
+        hasVendorHash,
     };
 }
 /**
- * Updates a Nix package file with new version, rev, and sha256 values.
+ * Updates a Nix package file with new version, rev, and hash values.
+ * Automatically detects whether the file uses `hash` (SRI format) or legacy `sha256`.
  *
  * @param content - The original content of the Nix file
  * @param updates - The new values to apply
+ * @param options - Optional settings for the update
  * @returns The updated Nix file content
  *
  * @example
  * const updated = updateNixFile(originalContent, {
  *   version: '1.0.0',
  *   rev: 'v1.0.0',
- *   sha256: 'sha256-...',
+ *   hash: 'sha256-...',
  * });
+ *
+ * @example
+ * // Skip rev update when rev uses ${version}
+ * const updated = updateNixFile(content, updates, { skipRevUpdate: true });
  */
-function updateNixFile(content, updates) {
+function updateNixFile(content, updates, options = {}) {
     let updated = content;
-    // Update version field
-    updated = updated.replace(/(version\s*=\s*)"[^"]+"/, `$1"${updates.version}"`);
-    // Update rev field
-    updated = updated.replace(/(rev\s*=\s*)"[^"]+"/, `$1"${updates.rev}"`);
-    // Update sha256 field
-    updated = updated.replace(/(sha256\s*=\s*)"[^"]+"/, `$1"${updates.sha256}"`);
+    // Update version field (word boundary to avoid matching e.g. nixVersion)
+    updated = updated.replace(/(\bversion\s*=\s*)"[^"]+"/, `$1"${updates.version}"`);
+    // Update rev field (word boundary to avoid matching e.g. prevRev)
+    // Skip if rev uses ${version} interpolation - it will auto-update with version
+    if (options.skipRevUpdate !== true) {
+        updated = updated.replace(/(\brev\s*=\s*)"[^"]+"/, `$1"${updates.rev}"`);
+    }
+    // Update hash field - use word boundary to avoid matching outputHash, cargoHash, etc.
+    // Try 'hash' first (modern SRI format), then fall back to 'sha256' (legacy)
+    if (/\bhash\s*=\s*"[^"]+"/.test(updated)) {
+        updated = updated.replace(/(\bhash\s*=\s*)"[^"]+"/, `$1"${updates.hash}"`);
+    }
+    else {
+        updated = updated.replace(/(\bsha256\s*=\s*)"[^"]+"/, `$1"${updates.hash}"`);
+    }
     return updated;
 }
 
@@ -33615,6 +33644,47 @@ var github = __nccwpck_require__(3228);
 
 
 /**
+ * Generates the PR body content.
+ *
+ * @param packageName - Name of the package
+ * @param version - New version
+ * @param options - PR options
+ * @returns The formatted PR body
+ */
+function generatePRBody(packageName, version, options = {}) {
+    const changes = ['- Updated `version` field'];
+    if (options.revUsesVersion !== true) {
+        changes.push('- Updated `rev` field');
+    }
+    changes.push('- Updated source `hash`');
+    let body = `## Summary
+
+- Updates \`${packageName}\` to version \`${version}\`
+- Auto-generated by nixpkgs-updater action
+
+## Changes
+
+${changes.join('\n')}
+`;
+    if (options.hasVendorHash === true) {
+        body += `
+## ⚠️ Action Required: vendorHash
+
+This package uses \`buildGoModule\` with a \`vendorHash\`. The \`vendorHash\` was **not** updated automatically because it cannot be pre-calculated.
+
+**If Go dependencies have changed**, you need to update it manually:
+
+1. Set \`vendorHash = "";\` or \`vendorHash = lib.fakeHash;\`
+2. Run \`nix build .#${packageName}\`
+3. Copy the correct hash from the error message
+4. Update \`vendorHash\` with the correct value
+
+If dependencies haven't changed, the existing \`vendorHash\` should still work.
+`;
+    }
+    return body;
+}
+/**
  * Creates a new pull request or updates an existing one.
  *
  * @param targetRepo - Target repository in owner/repo format
@@ -33622,6 +33692,7 @@ var github = __nccwpck_require__(3228);
  * @param branchName - Branch name for the PR
  * @param packageName - Name of the package being updated
  * @param version - New version of the package
+ * @param options - Optional PR settings
  * @returns Result containing PR URL, number, and whether it was created
  * @throws GitHubAPIError if PR creation/update fails
  *
@@ -33634,24 +33705,14 @@ var github = __nccwpck_require__(3228);
  *   '1.0.0'
  * );
  */
-async function createOrUpdatePR(targetRepo, token, branchName, packageName, version) {
+async function createOrUpdatePR(targetRepo, token, branchName, packageName, version, options = {}) {
     const octokit = github.getOctokit(token);
     const [owner, repo] = targetRepo.split('/');
     if (owner === undefined || repo === undefined) {
         throw new GitHubAPIError(`Invalid target repository format: ${targetRepo}`);
     }
     const title = `bump ${packageName} version to ${version}`;
-    const body = `## Summary
-
-- Updates \`${packageName}\` to version \`${version}\`
-- Auto-generated by nixpkgs-updater action
-
-## Changes
-
-- Updated \`version\` field
-- Updated \`rev\` field
-- Updated \`sha256\` hash
-`;
+    const body = generatePRBody(packageName, version, options);
     try {
         // Check for existing PR from this branch
         const { data: existingPRs } = await octokit.rest.pulls.list({
@@ -33772,6 +33833,12 @@ async function run() {
         }
         const nixData = parseNixFile(nixContent);
         core.info(`Current version: ${nixData.version}, rev: ${nixData.rev}`);
+        if (nixData.revUsesVersion) {
+            core.info('Detected rev uses ${version} interpolation - will skip rev update');
+        }
+        if (nixData.hasVendorHash) {
+            core.info('Detected vendorHash (buildGoModule) - manual update may be required');
+        }
         // Step 4: Fetch new hash using nix-prefetch-github
         core.info(`Fetching hash for ${nixData.owner}/${nixData.repo} at ${inputs.version}`);
         let newHash;
@@ -33787,24 +33854,31 @@ async function run() {
         const updatedContent = updateNixFile(nixContent, {
             version: cleanVersion,
             rev: inputs.version, // Keep original (with or without v)
-            sha256: newHash,
-        });
+            hash: newHash,
+        }, { skipRevUpdate: nixData.revUsesVersion });
         await promises_namespaceObject.writeFile(nixFilePath, updatedContent);
         core.info(`Updated Nix file with version ${cleanVersion}`);
         // Step 6: Create branch, commit, and push
         const branchName = formatBranchName(inputs.packageName, inputs.version);
         core.info(`Creating branch: ${branchName}`);
         await createBranch(repoPath, branchName);
+        // Build commit message based on what was updated
+        const commitChanges = [`- Updated version to ${cleanVersion}`];
+        if (!nixData.revUsesVersion) {
+            commitChanges.push(`- Updated rev to ${inputs.version}`);
+        }
+        commitChanges.push('- Updated hash');
         const commitMessage = `chore(${inputs.packageName}): bump version to ${cleanVersion}
 
-- Updated version to ${cleanVersion}
-- Updated rev to ${inputs.version}
-- Updated sha256 hash`;
+${commitChanges.join('\n')}`;
         await commitAndPush(repoPath, branchName, commitMessage);
         core.info(`Changes pushed to branch: ${branchName}`);
         // Step 7: Create or update PR
         core.info('Creating/updating pull request...');
-        const pr = await createOrUpdatePR(inputs.targetRepo, inputs.githubToken, branchName, inputs.packageName, cleanVersion);
+        const pr = await createOrUpdatePR(inputs.targetRepo, inputs.githubToken, branchName, inputs.packageName, cleanVersion, {
+            hasVendorHash: nixData.hasVendorHash,
+            revUsesVersion: nixData.revUsesVersion,
+        });
         // Set outputs
         core.setOutput('pr-url', pr.url);
         core.setOutput('pr-number', pr.number);

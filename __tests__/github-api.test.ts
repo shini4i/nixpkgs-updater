@@ -136,4 +136,98 @@ describe('createOrUpdatePR', () => {
       })
     );
   });
+
+  it('includes vendorHash warning when hasVendorHash is true', async () => {
+    mockListPulls.mockResolvedValue({ data: [] });
+    mockCreatePull.mockResolvedValue({
+      data: {
+        html_url: 'https://github.com/owner/repo/pull/1',
+        number: 1,
+      },
+    });
+
+    await createOrUpdatePR('owner/repo', 'token', 'branch', 'go-package', '1.0.0', {
+      hasVendorHash: true,
+    });
+
+    expect(mockCreatePull).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining('vendorHash'),
+      })
+    );
+    expect(mockCreatePull).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining('Action Required'),
+      })
+    );
+    expect(mockCreatePull).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining('nix build .#go-package'),
+      })
+    );
+  });
+
+  it('excludes rev update from changes when revUsesVersion is true', async () => {
+    mockListPulls.mockResolvedValue({ data: [] });
+    mockCreatePull.mockResolvedValue({
+      data: {
+        html_url: 'https://github.com/owner/repo/pull/1',
+        number: 1,
+      },
+    });
+
+    await createOrUpdatePR('owner/repo', 'token', 'branch', 'my-package', '1.0.0', {
+      revUsesVersion: true,
+    });
+
+    const callArg = mockCreatePull.mock.calls[0]?.[0] as { body?: string } | undefined;
+    expect(callArg?.body).not.toContain('Updated `rev` field');
+    expect(callArg?.body).toContain('Updated `version` field');
+    expect(callArg?.body).toContain('Updated source `hash`');
+  });
+
+  it('includes rev update in changes when revUsesVersion is false', async () => {
+    mockListPulls.mockResolvedValue({ data: [] });
+    mockCreatePull.mockResolvedValue({
+      data: {
+        html_url: 'https://github.com/owner/repo/pull/1',
+        number: 1,
+      },
+    });
+
+    await createOrUpdatePR('owner/repo', 'token', 'branch', 'my-package', '1.0.0', {
+      revUsesVersion: false,
+    });
+
+    expect(mockCreatePull).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining('Updated `rev` field'),
+      })
+    );
+  });
+
+  it('handles both hasVendorHash and revUsesVersion options', async () => {
+    mockListPulls.mockResolvedValue({ data: [] });
+    mockCreatePull.mockResolvedValue({
+      data: {
+        html_url: 'https://github.com/owner/repo/pull/1',
+        number: 1,
+      },
+    });
+
+    await createOrUpdatePR('owner/repo', 'token', 'branch', 'go-package', '1.0.0', {
+      hasVendorHash: true,
+      revUsesVersion: true,
+    });
+
+    const callArg = mockCreatePull.mock.calls[0]?.[0] as { body?: string } | undefined;
+    // Should include vendorHash warning
+    expect(callArg?.body).toContain('vendorHash');
+    expect(callArg?.body).toContain('Action Required');
+    // Should not include rev update
+    expect(callArg?.body).not.toContain('Updated `rev` field');
+    // Should include version and hash updates
+    expect(callArg?.body).toContain('Updated `version` field');
+    expect(callArg?.body).toContain('Updated source `hash`');
+  });
 });
