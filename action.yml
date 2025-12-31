@@ -1,0 +1,33 @@
+name: 'Nixpkgs Updater'
+description: 'Updates Nix flakes in a centralized repository when a new version is released'
+author: 'shini4i'
+
+branding:
+  icon: 'package'
+  color: 'blue'
+
+inputs:
+  package-name:
+    description: 'Name of the package directory in pkgs/<package-name>'
+    required: true
+  version:
+    description: 'New version to update to (e.g., v0.1.2 or 0.1.2)'
+    required: true
+  target-repo:
+    description: 'Target nixpkgs repository in owner/repo format'
+    required: true
+  github-token:
+    description: 'GitHub token with push access to target repository'
+    required: true
+
+outputs:
+  pr-url:
+    description: 'URL of the created or updated pull request'
+  pr-number:
+    description: 'Number of the created or updated pull request'
+  branch-name:
+    description: 'Name of the branch created'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
