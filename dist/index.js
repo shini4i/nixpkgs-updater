@@ -33700,7 +33700,7 @@ If dependencies haven't changed, the existing \`vendorHash\` should still work.
  * const result = await createOrUpdatePR(
  *   'shini4i/nixpkgs',
  *   'ghp_token',
- *   'chore/my-package-v1.0.0',
+ *   'chore/my-package',
  *   'my-package',
  *   '1.0.0'
  * );
@@ -33779,22 +33779,21 @@ function stripVersionPrefix(version) {
     return version.replace(/^[vV]/, '');
 }
 /**
- * Formats a branch name from package name and version.
+ * Formats a branch name from package name.
  * Sanitizes special characters to create a valid git branch name.
+ * The branch name is version-independent so that subsequent version updates
+ * will update the existing PR instead of creating a new one.
  *
  * @param packageName - The name of the package
- * @param version - The version string (with or without 'v' prefix)
- * @returns A formatted branch name in the format 'chore/<package>-<version>'
+ * @returns A formatted branch name in the format 'chore/<package>'
  *
  * @example
- * formatBranchName('my-package', 'v0.1.1') // returns 'chore/my-package-v0.1.1'
+ * formatBranchName('my-package') // returns 'chore/my-package'
  */
-function formatBranchName(packageName, version) {
+function formatBranchName(packageName) {
     // Sanitize package name: allow alphanumeric, dash, underscore
     const sanitizedPkg = packageName.replace(/[^a-zA-Z0-9_-]/g, '-');
-    // Sanitize version: allow alphanumeric, dash, dot
-    const sanitizedVersion = version.replace(/[^a-zA-Z0-9.-]/g, '-');
-    return `chore/${sanitizedPkg}-${sanitizedVersion}`;
+    return `chore/${sanitizedPkg}`;
 }
 
 ;// CONCATENATED MODULE: ./src/main.ts
@@ -33859,7 +33858,7 @@ async function run() {
         await promises_namespaceObject.writeFile(nixFilePath, updatedContent);
         core.info(`Updated Nix file with version ${cleanVersion}`);
         // Step 6: Create branch, commit, and push
-        const branchName = formatBranchName(inputs.packageName, inputs.version);
+        const branchName = formatBranchName(inputs.packageName);
         core.info(`Creating branch: ${branchName}`);
         await createBranch(repoPath, branchName);
         // Build commit message based on what was updated

@@ -166,9 +166,10 @@ If dependencies haven't changed, the existing `vendorHash` should still work.
 
 ## PR Behavior
 
-- Creates a new branch: `chore/<package-name>-<version>`
+- Creates a new branch: `chore/<package-name>` (version-independent)
 - PR title format: `bump <package-name> version to <version>`
-- If a PR already exists from the same branch, it will be updated instead
+- If a PR already exists from the same branch, it will be updated with the new version
+- This allows subsequent version releases to update the existing PR instead of creating new ones
 
 ## Token Permissions
 

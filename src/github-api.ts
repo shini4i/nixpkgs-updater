@@ -77,7 +77,7 @@ If dependencies haven't changed, the existing \`vendorHash\` should still work.
  * const result = await createOrUpdatePR(
  *   'shini4i/nixpkgs',
  *   'ghp_token',
- *   'chore/my-package-v1.0.0',
+ *   'chore/my-package',
  *   'my-package',
  *   '1.0.0'
  * );

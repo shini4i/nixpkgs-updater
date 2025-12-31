@@ -13,22 +13,20 @@ export function stripVersionPrefix(version: string): string {
 }
 
 /**
- * Formats a branch name from package name and version.
+ * Formats a branch name from package name.
  * Sanitizes special characters to create a valid git branch name.
+ * The branch name is version-independent so that subsequent version updates
+ * will update the existing PR instead of creating a new one.
  *
  * @param packageName - The name of the package
- * @param version - The version string (with or without 'v' prefix)
- * @returns A formatted branch name in the format 'chore/<package>-<version>'
+ * @returns A formatted branch name in the format 'chore/<package>'
  *
  * @example
- * formatBranchName('my-package', 'v0.1.1') // returns 'chore/my-package-v0.1.1'
+ * formatBranchName('my-package') // returns 'chore/my-package'
  */
-export function formatBranchName(packageName: string, version: string): string {
+export function formatBranchName(packageName: string): string {
   // Sanitize package name: allow alphanumeric, dash, underscore
   const sanitizedPkg = packageName.replace(/[^a-zA-Z0-9_-]/g, '-');
 
-  // Sanitize version: allow alphanumeric, dash, dot
-  const sanitizedVersion = version.replace(/[^a-zA-Z0-9.-]/g, '-');
-
-  return `chore/${sanitizedPkg}-${sanitizedVersion}`;
+  return `chore/${sanitizedPkg}`;
 }

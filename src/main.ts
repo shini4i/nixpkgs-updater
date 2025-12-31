@@ -83,7 +83,7 @@ async function run(): Promise<void> {
     core.info(`Updated Nix file with version ${cleanVersion}`);
 
     // Step 6: Create branch, commit, and push
-    const branchName = formatBranchName(inputs.packageName, inputs.version);
+    const branchName = formatBranchName(inputs.packageName);
     core.info(`Creating branch: ${branchName}`);
     await createBranch(repoPath, branchName);
 
