@@ -10,8 +10,12 @@ export interface NixFileData {
   version: string;
   /** Git reference (tag, branch, or commit) */
   rev: string;
-  /** SHA256 hash of the source archive */
-  sha256: string;
+  /** Hash of the source archive (SRI format or legacy sha256) */
+  hash: string;
+  /** Whether the rev field uses ${version} interpolation (e.g., "v${version}") */
+  revUsesVersion: boolean;
+  /** Whether the file contains a vendorHash field (buildGoModule) */
+  hasVendorHash: boolean;
 }
 
 /**
@@ -22,8 +26,8 @@ export interface NixUpdateData {
   version: string;
   /** New git reference */
   rev: string;
-  /** New SHA256 hash */
-  sha256: string;
+  /** New hash in SRI format */
+  hash: string;
 }
 
 /**

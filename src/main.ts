@@ -48,6 +48,13 @@ async function run(): Promise<void> {
     const nixData = parseNixFile(nixContent);
     core.info(`Current version: ${nixData.version}, rev: ${nixData.rev}`);
 
+    if (nixData.revUsesVersion) {
+      core.info('Detected rev uses ${version} interpolation - will skip rev update');
+    }
+    if (nixData.hasVendorHash) {
+      core.info('Detected vendorHash (buildGoModule) - manual update may be required');
+    }
+
     // Step 4: Fetch new hash using nix-prefetch-github
     core.info(`Fetching hash for ${nixData.owner}/${nixData.repo} at ${inputs.version}`);
     let newHash: string;
@@ -62,25 +69,34 @@ async function run(): Promise<void> {
 
     // Step 5: Update the Nix file
     const cleanVersion = stripVersionPrefix(inputs.version);
-    const updatedContent = updateNixFile(nixContent, {
-      version: cleanVersion,
-      rev: inputs.version, // Keep original (with or without v)
-      sha256: newHash,
-    });
+    const updatedContent = updateNixFile(
+      nixContent,
+      {
+        version: cleanVersion,
+        rev: inputs.version, // Keep original (with or without v)
+        hash: newHash,
+      },
+      { skipRevUpdate: nixData.revUsesVersion }
+    );
 
     await fs.writeFile(nixFilePath, updatedContent);
     core.info(`Updated Nix file with version ${cleanVersion}`);
 
     // Step 6: Create branch, commit, and push
-    const branchName = formatBranchName(inputs.packageName, inputs.version);
+    const branchName = formatBranchName(inputs.packageName);
     core.info(`Creating branch: ${branchName}`);
     await createBranch(repoPath, branchName);
 
+    // Build commit message based on what was updated
+    const commitChanges = [`- Updated version to ${cleanVersion}`];
+    if (!nixData.revUsesVersion) {
+      commitChanges.push(`- Updated rev to ${inputs.version}`);
+    }
+    commitChanges.push('- Updated hash');
+
     const commitMessage = `chore(${inputs.packageName}): bump version to ${cleanVersion}
 
-- Updated version to ${cleanVersion}
-- Updated rev to ${inputs.version}
-- Updated sha256 hash`;
+${commitChanges.join('\n')}`;
 
     await commitAndPush(repoPath, branchName, commitMessage);
     core.info(`Changes pushed to branch: ${branchName}`);
@@ -92,7 +108,11 @@ async function run(): Promise<void> {
       inputs.githubToken,
       branchName,
       inputs.packageName,
-      cleanVersion
+      cleanVersion,
+      {
+        hasVendorHash: nixData.hasVendorHash,
+        revUsesVersion: nixData.revUsesVersion,
+      }
     );
 
     // Set outputs

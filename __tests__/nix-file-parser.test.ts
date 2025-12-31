@@ -32,9 +32,69 @@ describe('parseNixFile', () => {
     expect(data.rev).toBe('v0.1.1');
   });
 
-  it('extracts sha256 from Nix file', () => {
+  it('extracts hash (sha256 format) from Nix file', () => {
     const data = parseNixFile(FIXTURE_CONTENT);
-    expect(data.sha256).toBe('sha256-MIOCHZ0kS30mhYPHdIAkVlmZm6dA6sDfQ8Nul6Zbt4s=');
+    expect(data.hash).toBe('sha256-MIOCHZ0kS30mhYPHdIAkVlmZm6dA6sDfQ8Nul6Zbt4s=');
+  });
+
+  it('extracts hash from modern SRI format (hash = ...)', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "1.0.0";
+      rev = "v1.0.0";
+      hash = "sha256-ModernHashValue=";
+    }`;
+    const data = parseNixFile(content);
+    expect(data.hash).toBe('sha256-ModernHashValue=');
+  });
+
+  it('does not match outputHash field', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "1.0.0";
+      rev = "v1.0.0";
+      outputHash = "sha256-OutputHashValue=";
+    }`;
+    expect(() => parseNixFile(content)).toThrow('Could not find hash or sha256 in Nix file');
+  });
+
+  it('does not match cargoHash field', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "1.0.0";
+      rev = "v1.0.0";
+      cargoHash = "sha256-CargoHashValue=";
+    }`;
+    expect(() => parseNixFile(content)).toThrow('Could not find hash or sha256 in Nix file');
+  });
+
+  it('extracts hash when outputHash is also present', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "1.0.0";
+      rev = "v1.0.0";
+      hash = "sha256-CorrectHash=";
+      outputHash = "sha256-ShouldNotMatch=";
+    }`;
+    const data = parseNixFile(content);
+    expect(data.hash).toBe('sha256-CorrectHash=');
+  });
+
+  it('extracts sha256 when cargoSha256 is also present', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "1.0.0";
+      rev = "v1.0.0";
+      sha256 = "sha256-CorrectHash=";
+      cargoSha256 = "sha256-ShouldNotMatch=";
+    }`;
+    const data = parseNixFile(content);
+    expect(data.hash).toBe('sha256-CorrectHash=');
   });
 
   it('throws error when owner is missing', () => {
@@ -48,7 +108,7 @@ describe('parseNixFile', () => {
   });
 
   it('throws error when version is missing', () => {
-    const content = `{ fetchFromGitHub }: { owner = "test"; repo = "test"; }`;
+    const content = `{ fetchFromGitHub }: { owner = "test"; repo = "test"; rev = "v1.0.0"; }`;
     expect(() => parseNixFile(content)).toThrow('Could not find version in Nix file');
   });
 
@@ -57,9 +117,9 @@ describe('parseNixFile', () => {
     expect(() => parseNixFile(content)).toThrow('Could not find rev in Nix file');
   });
 
-  it('throws error when sha256 is missing', () => {
+  it('throws error when hash/sha256 is missing', () => {
     const content = `{ fetchFromGitHub }: { owner = "test"; repo = "test"; version = "1.0.0"; rev = "v1.0.0"; }`;
-    expect(() => parseNixFile(content)).toThrow('Could not find sha256 in Nix file');
+    expect(() => parseNixFile(content)).toThrow('Could not find hash or sha256 in Nix file');
   });
 
   it('throws error for invalid owner with leading hyphen', () => {
@@ -98,13 +158,115 @@ describe('parseNixFile', () => {
     const data = parseNixFile(content);
     expect(data.repo).toBe('my_repo.nix');
   });
+
+  it('detects revUsesVersion when rev contains ${version}', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "0.5.1";
+      rev = "v\${version}";
+      hash = "sha256-test=";
+    }`;
+    const data = parseNixFile(content);
+    expect(data.revUsesVersion).toBe(true);
+    expect(data.rev).toBe('v${version}');
+  });
+
+  it('detects revUsesVersion is false for literal rev', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "0.5.1";
+      rev = "v0.5.1";
+      hash = "sha256-test=";
+    }`;
+    const data = parseNixFile(content);
+    expect(data.revUsesVersion).toBe(false);
+  });
+
+  it('detects hasVendorHash for buildGoModule packages', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "0.5.1";
+      rev = "v0.5.1";
+      hash = "sha256-source=";
+      vendorHash = "sha256-vendor=";
+    }`;
+    const data = parseNixFile(content);
+    expect(data.hasVendorHash).toBe(true);
+  });
+
+  it('detects hasVendorHash is false for simple packages', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "0.5.1";
+      rev = "v0.5.1";
+      hash = "sha256-source=";
+    }`;
+    const data = parseNixFile(content);
+    expect(data.hasVendorHash).toBe(false);
+  });
+
+  it('detects hasVendorHash with lib.fakeHash value', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "0.5.1";
+      rev = "v0.5.1";
+      hash = "sha256-source=";
+      vendorHash = lib.fakeHash;
+    }`;
+    const data = parseNixFile(content);
+    expect(data.hasVendorHash).toBe(true);
+  });
+
+  it('does not detect vendorHash in comments', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "0.5.1";
+      rev = "v0.5.1";
+      hash = "sha256-source=";
+      # vendorHash = "sha256-test="; # commented out
+    }`;
+    const data = parseNixFile(content);
+    expect(data.hasVendorHash).toBe(false);
+  });
+
+  it('detects revUsesVersion with bare version interpolation', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "0.5.1";
+      rev = "\${version}";
+      hash = "sha256-test=";
+    }`;
+    const data = parseNixFile(content);
+    expect(data.revUsesVersion).toBe(true);
+    expect(data.rev).toBe('${version}');
+  });
+
+  it('detects revUsesVersion with refs/tags format', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "0.5.1";
+      rev = "refs/tags/v\${version}";
+      hash = "sha256-test=";
+    }`;
+    const data = parseNixFile(content);
+    expect(data.revUsesVersion).toBe(true);
+    expect(data.rev).toBe('refs/tags/v${version}');
+  });
 });
 
 describe('updateNixFile', () => {
   const updates: NixUpdateData = {
     version: '0.2.0',
     rev: 'v0.2.0',
-    sha256: 'sha256-NEWHASHVALUE123456789=',
+    hash: 'sha256-NEWHASHVALUE123456789=',
   };
 
   it('updates version field', () => {
@@ -119,10 +281,93 @@ describe('updateNixFile', () => {
     expect(updated).not.toContain('rev = "v0.1.1"');
   });
 
-  it('updates sha256 field', () => {
+  it('updates sha256 field (legacy format)', () => {
     const updated = updateNixFile(FIXTURE_CONTENT, updates);
     expect(updated).toContain('sha256 = "sha256-NEWHASHVALUE123456789="');
     expect(updated).not.toContain('sha256 = "sha256-MIOCHZ0kS30mhYPHdIAkVlmZm6dA6sDfQ8Nul6Zbt4s="');
+  });
+
+  it('updates hash field (modern SRI format)', () => {
+    const modernContent = `{
+      owner = "test";
+      repo = "test";
+      version = "1.0.0";
+      rev = "v1.0.0";
+      hash = "sha256-OldHash=";
+    }`;
+    const updated = updateNixFile(modernContent, updates);
+    expect(updated).toContain('hash = "sha256-NEWHASHVALUE123456789="');
+    expect(updated).not.toContain('hash = "sha256-OldHash="');
+  });
+
+  it('does not modify outputHash when updating hash', () => {
+    const contentWithOutputHash = `{
+      owner = "test";
+      repo = "test";
+      version = "1.0.0";
+      rev = "v1.0.0";
+      hash = "sha256-SourceHash=";
+      outputHash = "sha256-OutputHashShouldNotChange=";
+    }`;
+    const updated = updateNixFile(contentWithOutputHash, updates);
+    expect(updated).toContain('hash = "sha256-NEWHASHVALUE123456789="');
+    expect(updated).toContain('outputHash = "sha256-OutputHashShouldNotChange="');
+  });
+
+  it('does not modify cargoHash when updating sha256', () => {
+    const contentWithCargoHash = `{
+      owner = "test";
+      repo = "test";
+      version = "1.0.0";
+      rev = "v1.0.0";
+      sha256 = "sha256-SourceHash=";
+      cargoHash = "sha256-CargoHashShouldNotChange=";
+    }`;
+    const updated = updateNixFile(contentWithCargoHash, updates);
+    expect(updated).toContain('sha256 = "sha256-NEWHASHVALUE123456789="');
+    expect(updated).toContain('cargoHash = "sha256-CargoHashShouldNotChange="');
+  });
+
+  it('does not modify vendorHash when updating hash', () => {
+    const contentWithVendorHash = `{
+      owner = "test";
+      repo = "test";
+      version = "1.0.0";
+      rev = "v1.0.0";
+      hash = "sha256-SourceHash=";
+      vendorHash = "sha256-VendorHashShouldNotChange=";
+    }`;
+    const updated = updateNixFile(contentWithVendorHash, updates);
+    expect(updated).toContain('hash = "sha256-NEWHASHVALUE123456789="');
+    expect(updated).toContain('vendorHash = "sha256-VendorHashShouldNotChange="');
+  });
+
+  it('skips rev update when skipRevUpdate option is true', () => {
+    const contentWithVersionRef = `{
+      owner = "test";
+      repo = "test";
+      version = "1.0.0";
+      rev = "v\${version}";
+      hash = "sha256-OldHash=";
+    }`;
+    const updated = updateNixFile(contentWithVersionRef, updates, { skipRevUpdate: true });
+    expect(updated).toContain('version = "0.2.0"');
+    expect(updated).toContain('rev = "v${version}"'); // rev should be unchanged
+    expect(updated).toContain('hash = "sha256-NEWHASHVALUE123456789="');
+  });
+
+  it('updates rev when skipRevUpdate is false (default)', () => {
+    const content = `{
+      owner = "test";
+      repo = "test";
+      version = "1.0.0";
+      rev = "v1.0.0";
+      hash = "sha256-OldHash=";
+    }`;
+    const updated = updateNixFile(content, updates);
+    expect(updated).toContain('version = "0.2.0"');
+    expect(updated).toContain('rev = "v0.2.0"');
+    expect(updated).toContain('hash = "sha256-NEWHASHVALUE123456789="');
   });
 
   it('preserves pname field', () => {
@@ -156,7 +401,7 @@ describe('updateNixFile', () => {
 
     expect(parsed.version).toBe('0.2.0');
     expect(parsed.rev).toBe('v0.2.0');
-    expect(parsed.sha256).toBe('sha256-NEWHASHVALUE123456789=');
+    expect(parsed.hash).toBe('sha256-NEWHASHVALUE123456789=');
     expect(parsed.owner).toBe('shini4i');
     expect(parsed.repo).toBe('gnome-shell-extension-elgato-lights');
   });

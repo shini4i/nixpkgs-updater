@@ -28,31 +28,21 @@ describe('stripVersionPrefix', () => {
 });
 
 describe('formatBranchName', () => {
-  it('formats branch name with package and version', () => {
-    expect(formatBranchName('my-package', 'v0.1.1')).toBe('chore/my-package-v0.1.1');
-  });
-
-  it('formats branch name with version without v prefix', () => {
-    expect(formatBranchName('my-package', '0.1.1')).toBe('chore/my-package-0.1.1');
+  it('formats branch name with package name only', () => {
+    expect(formatBranchName('my-package')).toBe('chore/my-package');
   });
 
   it('sanitizes special characters in package name', () => {
-    expect(formatBranchName('my@package!name', 'v0.1.1')).toBe('chore/my-package-name-v0.1.1');
-  });
-
-  it('sanitizes special characters in version', () => {
-    expect(formatBranchName('package', 'v1.0.0+build')).toBe('chore/package-v1.0.0-build');
+    expect(formatBranchName('my@package!name')).toBe('chore/my-package-name');
   });
 
   it('handles package names with underscores', () => {
-    expect(formatBranchName('gnome_shell_extension', 'v1.0.0')).toBe(
-      'chore/gnome_shell_extension-v1.0.0'
-    );
+    expect(formatBranchName('gnome_shell_extension')).toBe('chore/gnome_shell_extension');
   });
 
   it('handles complex package names', () => {
-    expect(formatBranchName('gnome-shell-extension-elgato-lights', 'v0.1.2')).toBe(
-      'chore/gnome-shell-extension-elgato-lights-v0.1.2'
+    expect(formatBranchName('gnome-shell-extension-elgato-lights')).toBe(
+      'chore/gnome-shell-extension-elgato-lights'
     );
   });
 });
