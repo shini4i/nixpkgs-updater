@@ -1,5 +1,7 @@
 # nixpkgs-updater
 
+[![codecov](https://codecov.io/gh/shini4i/nixpkgs-updater/graph/badge.svg?token=W7SNF25BXV)](https://codecov.io/gh/shini4i/nixpkgs-updater)
+
 A GitHub Action that automates updating Nix packages in a centralized repository when a new version is released in a source repository.
 
 ## Features
