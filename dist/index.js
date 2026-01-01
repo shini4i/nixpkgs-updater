@@ -33621,7 +33621,7 @@ async function fetchHash(owner, repo, rev) {
         },
         ignoreReturnCode: true,
     };
-    const exitCode = await exec.exec('nix', ['run', 'nixpkgs#nix-prefetch-github', '--', owner, repo, '--rev', rev], options);
+    const exitCode = await exec.exec('nix', ['shell', 'nixpkgs#nix-prefetch-github', '-c', 'nix-prefetch-github', owner, repo, '--rev', rev], options);
     if (exitCode !== 0) {
         // Extract the last meaningful lines from stderr (skip download progress)
         const stderrLines = stderr.split('\n');

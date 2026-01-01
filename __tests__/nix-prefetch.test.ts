@@ -50,7 +50,7 @@ describe('fetchHash', () => {
 
     expect(mockExec).toHaveBeenCalledWith(
       'nix',
-      ['run', 'nixpkgs#nix-prefetch-github', '--', 'owner', 'repo', '--rev', 'v1.0.0'],
+      ['shell', 'nixpkgs#nix-prefetch-github', '-c', 'nix-prefetch-github', 'owner', 'repo', '--rev', 'v1.0.0'],
       expect.objectContaining({
         ignoreReturnCode: true,
       })
