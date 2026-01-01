@@ -57,6 +57,15 @@ export function parseInputs(): ActionInputs {
     throw new InputValidationError('version must not be empty');
   }
 
+  // Validate version format (alphanumeric, dots, hyphens, underscores, plus signs)
+  // This prevents shell injection when version is used in nix-shell commands
+  const versionPattern = /^[a-zA-Z0-9._+-]+$/;
+  if (!versionPattern.test(version)) {
+    throw new InputValidationError(
+      `Invalid version format: "${version}". Must contain only alphanumeric characters, dots, hyphens, underscores, or plus signs.`
+    );
+  }
+
   return {
     packageName,
     version,

@@ -182,4 +182,64 @@ describe('parseInputs', () => {
     const result = parseInputs();
     expect(result.version).toBe('1.0.0');
   });
+
+  it('throws error for version with shell metacharacters', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0; rm -rf /',
+      'target-repo': 'owner/repo',
+      'github-token': 'token',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid version format');
+  });
+
+  it('throws error for version with backticks', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: '`whoami`',
+      'target-repo': 'owner/repo',
+      'github-token': 'token',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid version format');
+  });
+
+  it('throws error for version with $() command substitution', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: '$(cat /etc/passwd)',
+      'target-repo': 'owner/repo',
+      'github-token': 'token',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid version format');
+  });
+
+  it('accepts version with plus sign (semver build metadata)', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0+build.123',
+      'target-repo': 'owner/repo',
+      'github-token': 'token',
+    });
+
+    const result = parseInputs();
+    expect(result.version).toBe('v1.0.0+build.123');
+  });
+
+  it('accepts version with underscore', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0_rc1',
+      'target-repo': 'owner/repo',
+      'github-token': 'token',
+    });
+
+    const result = parseInputs();
+    expect(result.version).toBe('v1.0.0_rc1');
+  });
 });

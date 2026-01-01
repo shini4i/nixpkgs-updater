@@ -33,7 +33,7 @@ describe('fetchHash', () => {
     expect(hash).toBe('sha256-TESTHASH123456789=');
   });
 
-  it('calls nix-prefetch-github with correct arguments', async () => {
+  it('calls nix-shell with nix-prefetch-github', async () => {
     const mockOutput = JSON.stringify({
       owner: 'owner',
       repo: 'repo',
@@ -49,10 +49,11 @@ describe('fetchHash', () => {
     await fetchHash('owner', 'repo', 'v1.0.0');
 
     expect(mockExec).toHaveBeenCalledWith(
-      'nix-prefetch-github',
-      ['owner', 'repo', '--rev', 'v1.0.0'],
+      'nix-shell',
+      ['-p', 'nix-prefetch-github', '--run', 'nix-prefetch-github owner repo --rev v1.0.0'],
       expect.objectContaining({
         silent: true,
+        ignoreReturnCode: true,
       })
     );
   });

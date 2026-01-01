@@ -33,7 +33,11 @@ export async function fetchHash(owner: string, repo: string, rev: string): Promi
     ignoreReturnCode: true,
   };
 
-  const exitCode = await exec.exec('nix-prefetch-github', [owner, repo, '--rev', rev], options);
+  const exitCode = await exec.exec(
+    'nix-shell',
+    ['-p', 'nix-prefetch-github', '--run', `nix-prefetch-github ${owner} ${repo} --rev ${rev}`],
+    options
+  );
 
   if (exitCode !== 0) {
     throw new Error(`nix-prefetch-github failed with exit code ${String(exitCode)}: ${stderr}`);

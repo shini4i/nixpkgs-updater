@@ -21,7 +21,6 @@ A GitHub Action that automates updating Nix packages in a centralized repository
 1. A centralized nixpkgs repository with packages in `pkgs/<package-name>/default.nix`
 2. A GitHub token with push access to the target repository
 3. Nix installed in the workflow (use `cachix/install-nix-action`)
-4. `nix-prefetch-github` package installed (see example below)
 
 ### Basic Example
 
@@ -41,9 +40,6 @@ jobs:
     steps:
       - name: Install Nix
         uses: cachix/install-nix-action@v31
-
-      - name: Install nix-prefetch-github
-        run: nix profile add nixpkgs#nix-prefetch-github
 
       - name: Update nixpkgs
         uses: shini4i/nixpkgs-updater@v1

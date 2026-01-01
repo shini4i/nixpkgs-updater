@@ -33297,6 +33297,12 @@ function parseInputs() {
     if (version.trim() === '') {
         throw new InputValidationError('version must not be empty');
     }
+    // Validate version format (alphanumeric, dots, hyphens, underscores, plus signs)
+    // This prevents shell injection when version is used in nix-shell commands
+    const versionPattern = /^[a-zA-Z0-9._+-]+$/;
+    if (!versionPattern.test(version)) {
+        throw new InputValidationError(`Invalid version format: "${version}". Must contain only alphanumeric characters, dots, hyphens, underscores, or plus signs.`);
+    }
     return {
         packageName,
         version,
@@ -33616,7 +33622,7 @@ async function fetchHash(owner, repo, rev) {
         silent: true,
         ignoreReturnCode: true,
     };
-    const exitCode = await exec.exec('nix-prefetch-github', [owner, repo, '--rev', rev], options);
+    const exitCode = await exec.exec('nix-shell', ['-p', 'nix-prefetch-github', '--run', `nix-prefetch-github ${owner} ${repo} --rev ${rev}`], options);
     if (exitCode !== 0) {
         throw new Error(`nix-prefetch-github failed with exit code ${String(exitCode)}: ${stderr}`);
     }
