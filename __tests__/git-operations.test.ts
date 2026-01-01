@@ -92,6 +92,13 @@ describe('cloneRepository', () => {
     const promise = cloneRepository('owner/repo', 'token');
     await expect(promise).rejects.toThrow('Failed to clone repository owner/repo');
   });
+
+  it('handles non-Error exceptions during clone', async () => {
+    mockExec.mockRejectedValue('string error');
+
+    const promise = cloneRepository('owner/repo', 'token');
+    await expect(promise).rejects.toThrow('Failed to clone repository owner/repo: string error');
+  });
 });
 
 describe('createBranch', () => {
@@ -168,6 +175,16 @@ describe('createBranch', () => {
     const promise = createBranch('/tmp/repo', 'bad-branch');
     await expect(promise).rejects.toThrow('Failed to create branch bad-branch');
   });
+
+  it('handles non-Error exceptions during branch creation', async () => {
+    mockExec
+      .mockResolvedValueOnce(0) // fetch
+      .mockResolvedValueOnce(1) // checkout fails
+      .mockRejectedValueOnce('string error'); // checkout -b fails with non-Error
+
+    const promise = createBranch('/tmp/repo', 'bad-branch');
+    await expect(promise).rejects.toThrow('Failed to create branch bad-branch: string error');
+  });
 });
 
 describe('commitAndPush', () => {
@@ -242,5 +259,24 @@ describe('commitAndPush', () => {
 
     const promise = commitAndPush('/tmp/repo', 'branch', 'msg');
     await expect(promise).rejects.toThrow('Failed to push to branch');
+  });
+
+  it('handles non-Error exceptions during commit', async () => {
+    mockExec
+      .mockResolvedValueOnce(0) // add succeeds
+      .mockRejectedValueOnce('string error'); // commit fails with non-Error
+
+    const promise = commitAndPush('/tmp/repo', 'branch', 'msg');
+    await expect(promise).rejects.toThrow('Failed to commit changes: string error');
+  });
+
+  it('handles non-Error exceptions during push', async () => {
+    mockExec
+      .mockResolvedValueOnce(0) // add succeeds
+      .mockResolvedValueOnce(0) // commit succeeds
+      .mockRejectedValueOnce('string error'); // push fails with non-Error
+
+    const promise = commitAndPush('/tmp/repo', 'branch', 'msg');
+    await expect(promise).rejects.toThrow('Failed to push to branch: string error');
   });
 });

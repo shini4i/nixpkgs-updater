@@ -5,13 +5,19 @@ const mockGetOctokit = jest.fn();
 const mockListPulls = jest.fn();
 const mockUpdatePull = jest.fn();
 const mockCreatePull = jest.fn();
+const mockInfo = jest.fn();
 
 jest.unstable_mockModule('@actions/github', () => ({
   getOctokit: mockGetOctokit,
 }));
 
+jest.unstable_mockModule('@actions/core', () => ({
+  info: mockInfo,
+}));
+
 // Import after mocking
 const { createOrUpdatePR } = await import('../src/github-api.js');
+const { GitHubAPIError } = await import('../src/errors.js');
 
 describe('createOrUpdatePR', () => {
   beforeEach(() => {
@@ -229,5 +235,53 @@ describe('createOrUpdatePR', () => {
     // Should include version and hash updates
     expect(callArg?.body).toContain('Updated `version` field');
     expect(callArg?.body).toContain('Updated source `hash`');
+  });
+
+  it('throws GitHubAPIError for invalid target-repo format without slash', async () => {
+    const promise = createOrUpdatePR('invalid-repo', 'token', 'branch', 'package', '1.0.0');
+    await expect(promise).rejects.toThrow(GitHubAPIError);
+    await expect(promise).rejects.toThrow('Invalid target repository format: invalid-repo');
+  });
+
+  it('throws GitHubAPIError for empty target-repo', async () => {
+    const promise = createOrUpdatePR('', 'token', 'branch', 'package', '1.0.0');
+    await expect(promise).rejects.toThrow(GitHubAPIError);
+  });
+
+  it('re-throws GitHubAPIError without wrapping', async () => {
+    mockListPulls.mockRejectedValue(new GitHubAPIError('Original error'));
+
+    const promise = createOrUpdatePR('owner/repo', 'token', 'branch', 'package', '1.0.0');
+    await expect(promise).rejects.toThrow('Original error');
+  });
+
+  it('wraps non-GitHubAPIError exceptions', async () => {
+    mockListPulls.mockRejectedValue(new Error('Network error'));
+
+    const promise = createOrUpdatePR('owner/repo', 'token', 'branch', 'package', '1.0.0');
+    await expect(promise).rejects.toThrow('Failed to create/update PR: Network error');
+  });
+
+  it('wraps non-Error exceptions', async () => {
+    mockListPulls.mockRejectedValue('string error');
+
+    const promise = createOrUpdatePR('owner/repo', 'token', 'branch', 'package', '1.0.0');
+    await expect(promise).rejects.toThrow('Failed to create/update PR: string error');
+  });
+
+  it('logs info when updating existing PR', async () => {
+    mockListPulls.mockResolvedValue({
+      data: [
+        {
+          number: 99,
+          html_url: 'https://github.com/owner/repo/pull/99',
+        },
+      ],
+    });
+    mockUpdatePull.mockResolvedValue({});
+
+    await createOrUpdatePR('owner/repo', 'token', 'branch', 'my-package', '1.0.0');
+
+    expect(mockInfo).toHaveBeenCalledWith('Found existing PR #99, updating...');
   });
 });

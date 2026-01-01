@@ -1,4 +1,5 @@
 import * as exec from '@actions/exec';
+import * as core from '@actions/core';
 
 import type { PrefetchResult } from './types.js';
 
@@ -19,13 +20,27 @@ import type { PrefetchResult } from './types.js';
 export async function fetchHash(owner: string, repo: string, rev: string): Promise<string> {
   // Install nix-prefetch-github and its dependency nix-prefetch-git
   // nix-prefetch-git is NOT part of base Nix - it's a separate package that nix-prefetch-github needs
-  await exec.exec(
+  let installStderr = '';
+  const installExitCode = await exec.exec(
     'nix',
     ['profile', 'add', 'nixpkgs#nix-prefetch-git', 'nixpkgs#nix-prefetch-github'],
     {
       ignoreReturnCode: true, // May already be installed
+      listeners: {
+        stderr: (data: Buffer) => {
+          installStderr += data.toString();
+        },
+      },
     }
   );
+
+  // Log installation issues for debugging (already-installed warnings are expected)
+  if (installExitCode !== 0 && !/already.?installed/i.test(installStderr)) {
+    const stderrMessage = installStderr.trim() || '(no output)';
+    core.warning(
+      `nix profile add reported issues (exit code ${String(installExitCode)}): ${stderrMessage}`
+    );
+  }
 
   let stdout = '';
   let stderr = '';
@@ -48,13 +63,7 @@ export async function fetchHash(owner: string, repo: string, rev: string): Promi
     // Extract the last meaningful lines from stderr (skip download progress)
     const stderrLines = stderr.split('\n');
     const errorLines = stderrLines
-      .filter(
-        (line) =>
-          line.includes('error') ||
-          line.includes('Error') ||
-          line.includes('failed') ||
-          line.includes('Unable')
-      )
+      .filter((line) => /error|failed|unable/i.test(line))
       .slice(-5)
       .join('\n');
     const errorMessage = errorLines || stderrLines.slice(-10).join('\n');
