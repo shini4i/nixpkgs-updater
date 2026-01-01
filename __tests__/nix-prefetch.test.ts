@@ -52,7 +52,6 @@ describe('fetchHash', () => {
       'nix',
       ['run', 'nixpkgs#nix-prefetch-github', '--', 'owner', 'repo', '--rev', 'v1.0.0'],
       expect.objectContaining({
-        silent: true,
         ignoreReturnCode: true,
       })
     );
