@@ -43,7 +43,7 @@ jobs:
         uses: cachix/install-nix-action@v31
 
       - name: Install nix-prefetch-github
-        run: nix-env -iA nixpkgs.nix-prefetch-github
+        run: nix profile add nixpkgs#nix-prefetch-github
 
       - name: Update nixpkgs
         uses: shini4i/nixpkgs-updater@v1

@@ -33614,6 +33614,7 @@ async function fetchHash(owner, repo, rev) {
             },
         },
         silent: true,
+        ignoreReturnCode: true,
     };
     const exitCode = await exec.exec('nix-prefetch-github', [owner, repo, '--rev', rev], options);
     if (exitCode !== 0) {

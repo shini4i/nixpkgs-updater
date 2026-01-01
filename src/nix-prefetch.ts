@@ -30,6 +30,7 @@ export async function fetchHash(owner: string, repo: string, rev: string): Promi
       },
     },
     silent: true,
+    ignoreReturnCode: true,
   };
 
   const exitCode = await exec.exec('nix-prefetch-github', [owner, repo, '--rev', rev], options);
