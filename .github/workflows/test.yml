@@ -56,9 +56,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Test nix shell can execute nix-prefetch-github
-        run: nix shell nixpkgs#nix-prefetch-github -c nix-prefetch-github --version
-
   build:
     runs-on: ubuntu-latest
     steps:

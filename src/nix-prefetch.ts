@@ -17,6 +17,12 @@ import type { PrefetchResult } from './types.js';
  * console.log(hash); // 'sha256-abc123...'
  */
 export async function fetchHash(owner: string, repo: string, rev: string): Promise<string> {
+  // First, ensure nix-prefetch-github is installed
+  // This adds it to PATH so it can find other Nix tools (nix-prefetch-git, nix-build, etc.)
+  await exec.exec('nix', ['profile', 'install', 'nixpkgs#nix-prefetch-github'], {
+    ignoreReturnCode: true, // May already be installed
+  });
+
   let stdout = '';
   let stderr = '';
 
@@ -32,17 +38,19 @@ export async function fetchHash(owner: string, repo: string, rev: string): Promi
     ignoreReturnCode: true,
   };
 
-  const exitCode = await exec.exec(
-    'nix',
-    ['shell', 'nixpkgs#nix-prefetch-github', '-c', 'nix-prefetch-github', owner, repo, '--rev', rev],
-    options
-  );
+  const exitCode = await exec.exec('nix-prefetch-github', [owner, repo, '--rev', rev], options);
 
   if (exitCode !== 0) {
     // Extract the last meaningful lines from stderr (skip download progress)
     const stderrLines = stderr.split('\n');
     const errorLines = stderrLines
-      .filter((line) => line.includes('error') || line.includes('Error') || line.includes('failed'))
+      .filter(
+        (line) =>
+          line.includes('error') ||
+          line.includes('Error') ||
+          line.includes('failed') ||
+          line.includes('Unable')
+      )
       .slice(-5)
       .join('\n');
     const errorMessage = errorLines || stderrLines.slice(-10).join('\n');
