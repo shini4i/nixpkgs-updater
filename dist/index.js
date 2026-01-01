@@ -33608,9 +33608,9 @@ function updateNixFile(content, updates, options = {}) {
  * console.log(hash); // 'sha256-abc123...'
  */
 async function fetchHash(owner, repo, rev) {
-    // First, ensure nix-prefetch-github is installed
-    // This adds it to PATH so it can find other Nix tools (nix-prefetch-git, nix-build, etc.)
-    await exec.exec('nix', ['profile', 'install', 'nixpkgs#nix-prefetch-github'], {
+    // Install nix-prefetch-github and its dependency nix-prefetch-git
+    // nix-prefetch-git is NOT part of base Nix - it's a separate package that nix-prefetch-github needs
+    await exec.exec('nix', ['profile', 'add', 'nixpkgs#nix-prefetch-git', 'nixpkgs#nix-prefetch-github'], {
         ignoreReturnCode: true, // May already be installed
     });
     let stdout = '';

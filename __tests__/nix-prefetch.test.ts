@@ -53,10 +53,10 @@ describe('fetchHash', () => {
 
     await fetchHash('owner', 'repo', 'v1.0.0');
 
-    // Should first install nix-prefetch-github
+    // Should first install nix-prefetch-git and nix-prefetch-github
     expect(mockExec).toHaveBeenCalledWith(
       'nix',
-      ['profile', 'install', 'nixpkgs#nix-prefetch-github'],
+      ['profile', 'add', 'nixpkgs#nix-prefetch-git', 'nixpkgs#nix-prefetch-github'],
       expect.objectContaining({
         ignoreReturnCode: true,
       })
