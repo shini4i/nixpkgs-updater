@@ -34,8 +34,8 @@ export async function fetchHash(owner: string, repo: string, rev: string): Promi
   };
 
   const exitCode = await exec.exec(
-    'nix-shell',
-    ['-p', 'nix-prefetch-github', '--run', `nix-prefetch-github ${owner} ${repo} --rev ${rev}`],
+    'nix',
+    ['run', 'nixpkgs#nix-prefetch-github', '--', owner, repo, '--rev', rev],
     options
   );
 
