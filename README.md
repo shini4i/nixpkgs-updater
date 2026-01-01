@@ -177,7 +177,7 @@ The action requires a GitHub Personal Access Token (PAT) with push access to the
 
 ### Option 1: Fine-grained Personal Access Token (Recommended)
 
-1. Go to [GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens](https://github.com/settings/tokens?type=beta)
+1. Go to [GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens](https://github.com/settings/personal-access-tokens)
 2. Click "Generate new token"
 3. Configure:
    - **Token name**: `nixpkgs-updater` (or any descriptive name)

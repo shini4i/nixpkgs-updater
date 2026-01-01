@@ -19,9 +19,13 @@ import type { PrefetchResult } from './types.js';
 export async function fetchHash(owner: string, repo: string, rev: string): Promise<string> {
   // Install nix-prefetch-github and its dependency nix-prefetch-git
   // nix-prefetch-git is NOT part of base Nix - it's a separate package that nix-prefetch-github needs
-  await exec.exec('nix', ['profile', 'add', 'nixpkgs#nix-prefetch-git', 'nixpkgs#nix-prefetch-github'], {
-    ignoreReturnCode: true, // May already be installed
-  });
+  await exec.exec(
+    'nix',
+    ['profile', 'add', 'nixpkgs#nix-prefetch-git', 'nixpkgs#nix-prefetch-github'],
+    {
+      ignoreReturnCode: true, // May already be installed
+    }
+  );
 
   let stdout = '';
   let stderr = '';
@@ -54,7 +58,9 @@ export async function fetchHash(owner: string, repo: string, rev: string): Promi
       .slice(-5)
       .join('\n');
     const errorMessage = errorLines || stderrLines.slice(-10).join('\n');
-    throw new Error(`nix-prefetch-github failed with exit code ${String(exitCode)}: ${errorMessage}`);
+    throw new Error(
+      `nix-prefetch-github failed with exit code ${String(exitCode)}: ${errorMessage}`
+    );
   }
 
   let parsed: unknown;
