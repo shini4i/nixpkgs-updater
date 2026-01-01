@@ -44,11 +44,6 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@4e002c8ec80594ecd40e759629461e26c8abed15 # v31.9.0
 
-      - name: Install nix-prefetch-github
-        # Pinned to nixos-unstable for reproducibility (matching flake.nix)
-        # Update commit hash periodically: https://github.com/NixOS/nixpkgs/commits/nixos-unstable
-        run: nix profile install github:NixOS/nixpkgs/c0b0e0fddf73fd517c3471e546c0df87a42d53f4#nix-prefetch-github
-
       - name: Setup Node.js
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
@@ -60,9 +55,6 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Test nix-prefetch-github availability
-        run: nix-prefetch-github --version
 
   build:
     runs-on: ubuntu-latest

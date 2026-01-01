@@ -33297,6 +33297,12 @@ function parseInputs() {
     if (version.trim() === '') {
         throw new InputValidationError('version must not be empty');
     }
+    // Validate version format (alphanumeric, dots, hyphens, underscores, plus signs)
+    // This prevents shell injection when version is used in nix-shell commands
+    const versionPattern = /^[a-zA-Z0-9._+-]+$/;
+    if (!versionPattern.test(version)) {
+        throw new InputValidationError(`Invalid version format: "${version}". Must contain only alphanumeric characters, dots, hyphens, underscores, or plus signs.`);
+    }
     return {
         packageName,
         version,
@@ -33602,6 +33608,11 @@ function updateNixFile(content, updates, options = {}) {
  * console.log(hash); // 'sha256-abc123...'
  */
 async function fetchHash(owner, repo, rev) {
+    // Install nix-prefetch-github and its dependency nix-prefetch-git
+    // nix-prefetch-git is NOT part of base Nix - it's a separate package that nix-prefetch-github needs
+    await exec.exec('nix', ['profile', 'add', 'nixpkgs#nix-prefetch-git', 'nixpkgs#nix-prefetch-github'], {
+        ignoreReturnCode: true, // May already be installed
+    });
     let stdout = '';
     let stderr = '';
     const options = {
@@ -33613,11 +33624,21 @@ async function fetchHash(owner, repo, rev) {
                 stderr += data.toString();
             },
         },
-        silent: true,
+        ignoreReturnCode: true,
     };
     const exitCode = await exec.exec('nix-prefetch-github', [owner, repo, '--rev', rev], options);
     if (exitCode !== 0) {
-        throw new Error(`nix-prefetch-github failed with exit code ${String(exitCode)}: ${stderr}`);
+        // Extract the last meaningful lines from stderr (skip download progress)
+        const stderrLines = stderr.split('\n');
+        const errorLines = stderrLines
+            .filter((line) => line.includes('error') ||
+            line.includes('Error') ||
+            line.includes('failed') ||
+            line.includes('Unable'))
+            .slice(-5)
+            .join('\n');
+        const errorMessage = errorLines || stderrLines.slice(-10).join('\n');
+        throw new Error(`nix-prefetch-github failed with exit code ${String(exitCode)}: ${errorMessage}`);
     }
     let parsed;
     try {

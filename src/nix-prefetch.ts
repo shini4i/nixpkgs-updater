@@ -1,4 +1,5 @@
 import * as exec from '@actions/exec';
+import * as core from '@actions/core';
 
 import type { PrefetchResult } from './types.js';
 
@@ -17,6 +18,30 @@ import type { PrefetchResult } from './types.js';
  * console.log(hash); // 'sha256-abc123...'
  */
 export async function fetchHash(owner: string, repo: string, rev: string): Promise<string> {
+  // Install nix-prefetch-github and its dependency nix-prefetch-git
+  // nix-prefetch-git is NOT part of base Nix - it's a separate package that nix-prefetch-github needs
+  let installStderr = '';
+  const installExitCode = await exec.exec(
+    'nix',
+    ['profile', 'add', 'nixpkgs#nix-prefetch-git', 'nixpkgs#nix-prefetch-github'],
+    {
+      ignoreReturnCode: true, // May already be installed
+      listeners: {
+        stderr: (data: Buffer) => {
+          installStderr += data.toString();
+        },
+      },
+    }
+  );
+
+  // Log installation issues for debugging (already-installed warnings are expected)
+  if (installExitCode !== 0 && !/already.?installed/i.test(installStderr)) {
+    const stderrMessage = installStderr.trim() || '(no output)';
+    core.warning(
+      `nix profile add reported issues (exit code ${String(installExitCode)}): ${stderrMessage}`
+    );
+  }
+
   let stdout = '';
   let stderr = '';
 
@@ -29,13 +54,22 @@ export async function fetchHash(owner: string, repo: string, rev: string): Promi
         stderr += data.toString();
       },
     },
-    silent: true,
+    ignoreReturnCode: true,
   };
 
   const exitCode = await exec.exec('nix-prefetch-github', [owner, repo, '--rev', rev], options);
 
   if (exitCode !== 0) {
-    throw new Error(`nix-prefetch-github failed with exit code ${String(exitCode)}: ${stderr}`);
+    // Extract the last meaningful lines from stderr (skip download progress)
+    const stderrLines = stderr.split('\n');
+    const errorLines = stderrLines
+      .filter((line) => /error|failed|unable/i.test(line))
+      .slice(-5)
+      .join('\n');
+    const errorMessage = errorLines || stderrLines.slice(-10).join('\n');
+    throw new Error(
+      `nix-prefetch-github failed with exit code ${String(exitCode)}: ${errorMessage}`
+    );
   }
 
   let parsed: unknown;

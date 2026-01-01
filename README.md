@@ -173,8 +173,34 @@ If dependencies haven't changed, the existing `vendorHash` should still work.
 
 ## Token Permissions
 
-The GitHub token needs the following permissions on the target repository:
-- `repo` scope (for pushing branches and creating PRs)
+The action requires a GitHub Personal Access Token (PAT) with push access to the target repository.
+
+### Option 1: Fine-grained Personal Access Token (Recommended)
+
+1. Go to [GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens](https://github.com/settings/personal-access-tokens)
+2. Click "Generate new token"
+3. Configure:
+   - **Token name**: `nixpkgs-updater` (or any descriptive name)
+   - **Expiration**: Choose based on your security requirements
+   - **Repository access**: Select "Only select repositories" → choose your target nixpkgs repository
+   - **Permissions**:
+     - **Contents**: Read and write (for cloning and pushing branches)
+     - **Pull requests**: Read and write (for creating/updating PRs)
+4. Click "Generate token" and copy the token
+5. Add it as a secret in your source repository: Settings → Secrets → Actions → New repository secret → name it `NIXPKGS_TOKEN`
+
+### Option 2: Classic Personal Access Token
+
+1. Go to [GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)](https://github.com/settings/tokens)
+2. Click "Generate new token (classic)"
+3. Configure:
+   - **Note**: `nixpkgs-updater`
+   - **Expiration**: Choose based on your security requirements
+   - **Scopes**: Select `repo` (Full control of private repositories)
+4. Click "Generate token" and copy the token
+5. Add it as a secret in your source repository: Settings → Secrets → Actions → New repository secret → name it `NIXPKGS_TOKEN`
+
+> **Note**: Fine-grained tokens are recommended as they follow the principle of least privilege.
 
 ## Development
 
