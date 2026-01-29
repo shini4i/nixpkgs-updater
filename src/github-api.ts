@@ -3,6 +3,7 @@ import * as core from '@actions/core';
 
 import type { PRResult } from './types.js';
 import { GitHubAPIError } from './errors.js';
+import { withRetry, isTransientError } from './utils.js';
 
 /**
  * Options for PR creation.
@@ -15,12 +16,12 @@ export interface PROptions {
 }
 
 /**
- * Generates the PR body content.
+ * Generates the PR body content with summary, changes, and any required actions.
  *
- * @param packageName - Name of the package
- * @param version - New version
- * @param options - PR options
- * @returns The formatted PR body
+ * @param packageName - Name of the package being updated
+ * @param version - New version of the package
+ * @param options - PR options controlling content generation
+ * @returns Formatted PR body in markdown
  */
 function generatePRBody(packageName: string, version: string, options: PROptions = {}): string {
   const changes = ['- Updated `version` field'];
@@ -69,6 +70,7 @@ If dependencies haven't changed, the existing \`vendorHash\` should still work.
  * @param branchName - Branch name for the PR
  * @param packageName - Name of the package being updated
  * @param version - New version of the package
+ * @param baseBranch - Base branch to create PR against (default: 'main')
  * @param options - Optional PR settings
  * @returns Result containing PR URL, number, and whether it was created
  * @throws GitHubAPIError if PR creation/update fails
@@ -79,7 +81,8 @@ If dependencies haven't changed, the existing \`vendorHash\` should still work.
  *   'ghp_token',
  *   'chore/my-package',
  *   'my-package',
- *   '1.0.0'
+ *   '1.0.0',
+ *   'main'
  * );
  */
 export async function createOrUpdatePR(
@@ -88,6 +91,7 @@ export async function createOrUpdatePR(
   branchName: string,
   packageName: string,
   version: string,
+  baseBranch = 'main',
   options: PROptions = {}
 ): Promise<PRResult> {
   const octokit = github.getOctokit(token);
@@ -100,14 +104,25 @@ export async function createOrUpdatePR(
   const title = `bump ${packageName} version to ${version}`;
   const body = generatePRBody(packageName, version, options);
 
+  core.debug(`Creating/updating PR for ${packageName} v${version} against ${baseBranch}`);
+
   try {
     // Check for existing PR from this branch
-    const { data: existingPRs } = await octokit.rest.pulls.list({
-      owner,
-      repo,
-      head: `${owner}:${branchName}`,
-      state: 'open',
-    });
+    core.debug(`Checking for existing PR from branch ${branchName}`);
+    const { data: existingPRs } = await withRetry(
+      async () =>
+        octokit.rest.pulls.list({
+          owner,
+          repo,
+          head: `${owner}:${branchName}`,
+          state: 'open',
+        }),
+      {
+        maxAttempts: 3,
+        operationName: 'list PRs',
+        shouldRetry: isTransientError,
+      }
+    );
 
     if (existingPRs.length > 0) {
       // Update existing PR
@@ -118,14 +133,23 @@ export async function createOrUpdatePR(
       }
 
       core.info(`Found existing PR #${String(existingPR.number)}, updating...`);
+      core.debug(`Updating PR #${String(existingPR.number)} title and body`);
 
-      await octokit.rest.pulls.update({
-        owner,
-        repo,
-        pull_number: existingPR.number,
-        title,
-        body,
-      });
+      await withRetry(
+        async () =>
+          octokit.rest.pulls.update({
+            owner,
+            repo,
+            pull_number: existingPR.number,
+            title,
+            body,
+          }),
+        {
+          maxAttempts: 3,
+          operationName: 'update PR',
+          shouldRetry: isTransientError,
+        }
+      );
 
       return {
         url: existingPR.html_url,
@@ -135,14 +159,23 @@ export async function createOrUpdatePR(
     }
 
     // Create new PR
-    const { data: newPR } = await octokit.rest.pulls.create({
-      owner,
-      repo,
-      title,
-      body,
-      head: branchName,
-      base: 'main',
-    });
+    core.debug(`Creating new PR with head=${branchName} and base=${baseBranch}`);
+    const { data: newPR } = await withRetry(
+      async () =>
+        octokit.rest.pulls.create({
+          owner,
+          repo,
+          title,
+          body,
+          head: branchName,
+          base: baseBranch,
+        }),
+      {
+        maxAttempts: 3,
+        operationName: 'create PR',
+        shouldRetry: isTransientError,
+      }
+    );
 
     return {
       url: newPR.html_url,

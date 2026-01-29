@@ -19,6 +19,10 @@ inputs:
   github-token:
     description: 'GitHub token with push access to target repository'
     required: true
+  base-branch:
+    description: 'Base branch to create PR against'
+    required: false
+    default: 'main'
 
 outputs:
   pr-url:

@@ -36,8 +36,102 @@ describe('parseInputs', () => {
     expect(result.version).toBe('v1.0.0');
     expect(result.targetRepo).toBe('owner/repo');
     expect(result.githubToken).toBe('ghp_token123');
-    expect(result.targetOwner).toBe('owner');
-    expect(result.targetRepoName).toBe('repo');
+    expect(result.baseBranch).toBe('main');
+  });
+
+  it('uses default base-branch when not specified', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+    });
+
+    const result = parseInputs();
+
+    expect(result.baseBranch).toBe('main');
+  });
+
+  it('uses custom base-branch when specified', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'develop',
+    });
+
+    const result = parseInputs();
+
+    expect(result.baseBranch).toBe('develop');
+  });
+
+  it('accepts base-branch with slashes (feature branches)', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'release/v2.0',
+    });
+
+    const result = parseInputs();
+
+    expect(result.baseBranch).toBe('release/v2.0');
+  });
+
+  it('accepts base-branch with hyphens and underscores', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'my-feature_branch',
+    });
+
+    const result = parseInputs();
+
+    expect(result.baseBranch).toBe('my-feature_branch');
+  });
+
+  it('accepts base-branch with dots (version branches)', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'release-1.0',
+    });
+
+    const result = parseInputs();
+
+    expect(result.baseBranch).toBe('release-1.0');
+  });
+
+  it('throws error for base-branch with shell metacharacters', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'main; rm -rf /',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
+  it('throws error for base-branch with spaces', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'my branch',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
   });
 
   it('throws error for invalid target-repo format without slash', () => {
@@ -169,6 +263,66 @@ describe('parseInputs', () => {
 
     const result = parseInputs();
     expect(result.packageName).toBe('my-package_name');
+  });
+
+  it('accepts package-name with dots', () => {
+    setupMockInputs({
+      'package-name': 'my.package.name',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'token',
+    });
+
+    const result = parseInputs();
+    expect(result.packageName).toBe('my.package.name');
+  });
+
+  it('throws error for package-name with shell metacharacters', () => {
+    setupMockInputs({
+      'package-name': 'my-package; echo hello',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'token',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid package-name format');
+  });
+
+  it('throws error for package-name with backticks', () => {
+    setupMockInputs({
+      'package-name': '`whoami`',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'token',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid package-name format');
+  });
+
+  it('throws error for package-name with $() command substitution', () => {
+    setupMockInputs({
+      'package-name': '$(echo test)',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'token',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid package-name format');
+  });
+
+  it('throws error for package-name with quotes', () => {
+    setupMockInputs({
+      'package-name': 'my-package"test',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'token',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid package-name format');
   });
 
   it('accepts version without v prefix', () => {

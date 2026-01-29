@@ -1,11 +1,15 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type * as execModule from '@actions/exec';
 import type * as ioModule from '@actions/io';
+import type * as fsModule from 'fs/promises';
 
 // Mock dependencies before importing
 const mockExec = jest.fn<typeof execModule.exec>();
 const mockMkdirP = jest.fn<typeof ioModule.mkdirP>();
 const mockSetSecret = jest.fn<(secret: string) => void>();
+const mockDebug = jest.fn<(message: string) => void>();
+const mockWarning = jest.fn<(message: string) => void>();
+const mockRm = jest.fn<typeof fsModule.rm>();
 
 jest.unstable_mockModule('@actions/exec', () => ({
   exec: mockExec,
@@ -17,10 +21,24 @@ jest.unstable_mockModule('@actions/io', () => ({
 
 jest.unstable_mockModule('@actions/core', () => ({
   setSecret: mockSetSecret,
+  debug: mockDebug,
+  warning: mockWarning,
+}));
+
+jest.unstable_mockModule('fs/promises', () => ({
+  rm: mockRm,
 }));
 
 // Import after mocking
-const { cloneRepository, createBranch, commitAndPush } = await import('../src/git-operations.js');
+const {
+  cloneRepository,
+  createBranch,
+  commitAndPush,
+  cleanupRepository,
+  stageChanges,
+  createCommit,
+  pushBranch,
+} = await import('../src/git-operations.js');
 const { GitOperationError } = await import('../src/errors.js');
 
 describe('cloneRepository', () => {
@@ -99,6 +117,12 @@ describe('cloneRepository', () => {
     const promise = cloneRepository('owner/repo', 'token');
     await expect(promise).rejects.toThrow('Failed to clone repository owner/repo: string error');
   });
+
+  it('logs debug message when cloning', async () => {
+    await cloneRepository('owner/repo', 'token');
+
+    expect(mockDebug).toHaveBeenCalledWith(expect.stringContaining('Cloning repository'));
+  });
 });
 
 describe('createBranch', () => {
@@ -143,7 +167,7 @@ describe('createBranch', () => {
     );
   });
 
-  it('resets to origin/main when branch exists', async () => {
+  it('resets to origin/main when branch exists (default baseBranch)', async () => {
     // Both fetch and checkout succeed
     mockExec.mockResolvedValue(0);
 
@@ -152,6 +176,30 @@ describe('createBranch', () => {
     expect(mockExec).toHaveBeenCalledWith(
       'git',
       ['reset', '--hard', 'origin/main'],
+      expect.objectContaining({ ignoreReturnCode: true, silent: true })
+    );
+  });
+
+  it('resets to custom baseBranch when specified', async () => {
+    mockExec.mockResolvedValue(0);
+
+    await createBranch('/tmp/repo', 'existing-branch', 'develop');
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'git',
+      ['reset', '--hard', 'origin/develop'],
+      expect.objectContaining({ ignoreReturnCode: true, silent: true })
+    );
+  });
+
+  it('resets to feature branch baseBranch', async () => {
+    mockExec.mockResolvedValue(0);
+
+    await createBranch('/tmp/repo', 'existing-branch', 'release/v2.0');
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'git',
+      ['reset', '--hard', 'origin/release/v2.0'],
       expect.objectContaining({ ignoreReturnCode: true, silent: true })
     );
   });
@@ -185,6 +233,89 @@ describe('createBranch', () => {
     const promise = createBranch('/tmp/repo', 'bad-branch');
     await expect(promise).rejects.toThrow('Failed to create branch bad-branch: string error');
   });
+
+  it('logs debug messages', async () => {
+    await createBranch('/tmp/repo', 'feature-branch', 'main');
+
+    expect(mockDebug).toHaveBeenCalledWith(
+      expect.stringContaining('Creating/checking out branch: feature-branch')
+    );
+  });
+});
+
+describe('stageChanges', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockExec.mockResolvedValue(0);
+  });
+
+  it('adds all files', async () => {
+    await stageChanges('/tmp/repo');
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'git',
+      ['add', '-A'],
+      expect.objectContaining({ cwd: '/tmp/repo', silent: true })
+    );
+  });
+
+  it('throws GitOperationError on failure', async () => {
+    mockExec.mockRejectedValue(new Error('Failed to add'));
+
+    const promise = stageChanges('/tmp/repo');
+    await expect(promise).rejects.toThrow(GitOperationError);
+    await expect(stageChanges('/tmp/repo')).rejects.toThrow('Failed to stage changes');
+  });
+});
+
+describe('createCommit', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockExec.mockResolvedValue(0);
+  });
+
+  it('commits with provided message', async () => {
+    await createCommit('/tmp/repo', 'chore: update version');
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'git',
+      ['commit', '-m', 'chore: update version'],
+      expect.objectContaining({ cwd: '/tmp/repo', silent: true })
+    );
+  });
+
+  it('throws GitOperationError on failure', async () => {
+    mockExec.mockRejectedValue(new Error('Nothing to commit'));
+
+    const promise = createCommit('/tmp/repo', 'msg');
+    await expect(promise).rejects.toThrow(GitOperationError);
+    await expect(createCommit('/tmp/repo', 'msg')).rejects.toThrow('Failed to commit changes');
+  });
+});
+
+describe('pushBranch', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockExec.mockResolvedValue(0);
+  });
+
+  it('pushes with force-with-lease', async () => {
+    await pushBranch('/tmp/repo', 'my-branch');
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'git',
+      ['push', '--force-with-lease', 'origin', 'my-branch'],
+      expect.objectContaining({ cwd: '/tmp/repo', silent: true })
+    );
+  });
+
+  it('throws GitOperationError on failure', async () => {
+    mockExec.mockRejectedValue(new Error('Push rejected'));
+
+    const promise = pushBranch('/tmp/repo', 'my-branch');
+    await expect(promise).rejects.toThrow(GitOperationError);
+    await expect(pushBranch('/tmp/repo', 'my-branch')).rejects.toThrow('Failed to push to');
+  });
 });
 
 describe('commitAndPush', () => {
@@ -213,12 +344,12 @@ describe('commitAndPush', () => {
     );
   });
 
-  it('force pushes to remote', async () => {
+  it('pushes with force-with-lease (safe force push)', async () => {
     await commitAndPush('/tmp/repo', 'my-branch', 'test commit');
 
     expect(mockExec).toHaveBeenCalledWith(
       'git',
-      ['push', '--force', 'origin', 'my-branch'],
+      ['push', '--force-with-lease', 'origin', 'my-branch'],
       expect.objectContaining({ cwd: '/tmp/repo', silent: true })
     );
   });
@@ -278,5 +409,48 @@ describe('commitAndPush', () => {
 
     const promise = commitAndPush('/tmp/repo', 'branch', 'msg');
     await expect(promise).rejects.toThrow('Failed to push to branch: string error');
+  });
+});
+
+describe('cleanupRepository', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRm.mockResolvedValue(undefined);
+  });
+
+  it('removes the repository directory recursively', async () => {
+    await cleanupRepository('/tmp/nixpkgs-updater-abc123');
+
+    expect(mockRm).toHaveBeenCalledWith('/tmp/nixpkgs-updater-abc123', {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  it('logs debug message on cleanup', async () => {
+    await cleanupRepository('/tmp/nixpkgs-updater-abc123');
+
+    expect(mockDebug).toHaveBeenCalledWith(expect.stringContaining('Cleaning up repository'));
+  });
+
+  it('logs debug message on successful cleanup', async () => {
+    await cleanupRepository('/tmp/nixpkgs-updater-abc123');
+
+    expect(mockDebug).toHaveBeenCalledWith(expect.stringContaining('Successfully cleaned up'));
+  });
+
+  it('logs warning but does not throw on cleanup failure', async () => {
+    mockRm.mockRejectedValue(new Error('Permission denied'));
+
+    await cleanupRepository('/tmp/nixpkgs-updater-abc123');
+
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('Failed to clean up'));
+  });
+
+  it('does nothing when repoPath is empty', async () => {
+    await cleanupRepository('');
+
+    expect(mockRm).not.toHaveBeenCalled();
+    expect(mockDebug).toHaveBeenCalledWith('No repository path provided for cleanup');
   });
 });

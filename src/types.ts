@@ -42,10 +42,8 @@ export interface ActionInputs {
   targetRepo: string;
   /** GitHub token with push access */
   githubToken: string;
-  /** Parsed target repository owner */
-  targetOwner: string;
-  /** Parsed target repository name */
-  targetRepoName: string;
+  /** Base branch to create PR against */
+  baseBranch: string;
 }
 
 /**

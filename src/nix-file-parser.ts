@@ -1,4 +1,5 @@
 import type { NixFileData, NixUpdateData } from './types.js';
+import { NixFileParseError } from './errors.js';
 
 /**
  * Regular expression patterns for extracting data from Nix files.
@@ -21,13 +22,13 @@ const PATTERNS = {
  * GitHub usernames: 1-39 characters, alphanumeric or hyphens, cannot start/end with hyphen.
  *
  * @param owner - The owner string to validate
- * @throws Error if the owner format is invalid
+ * @throws NixFileParseError if the owner format is invalid
  */
 function validateGitHubOwner(owner: string): void {
   // GitHub username rules: alphanumeric and hyphens, 1-39 chars, no leading/trailing hyphens
   const ownerPattern = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/;
   if (!ownerPattern.test(owner)) {
-    throw new Error(
+    throw new NixFileParseError(
       `Invalid GitHub owner format: "${owner}". Must be 1-39 alphanumeric characters or hyphens, cannot start/end with hyphen.`
     );
   }
@@ -38,13 +39,13 @@ function validateGitHubOwner(owner: string): void {
  * GitHub repos: alphanumeric, hyphens, underscores, periods; cannot end with .git.
  *
  * @param repo - The repository name to validate
- * @throws Error if the repository format is invalid
+ * @throws NixFileParseError if the repository format is invalid
  */
 function validateGitHubRepo(repo: string): void {
   // GitHub repo rules: alphanumeric, hyphens, underscores, periods; 1-100 chars; no .git suffix
   const repoPattern = /^[a-zA-Z0-9._-]+$/;
   if (!repoPattern.test(repo) || repo.endsWith('.git') || repo.length > 100) {
-    throw new Error(
+    throw new NixFileParseError(
       `Invalid GitHub repository format: "${repo}". Must contain only alphanumeric characters, hyphens, underscores, or periods. Cannot end with .git.`
     );
   }
@@ -58,12 +59,12 @@ function validateGitHubRepo(repo: string): void {
  * @param name - The name of the field (for error messages)
  * @param groupIndex - The capture group index to extract (default: 1)
  * @returns The extracted value
- * @throws Error if the pattern is not found
+ * @throws NixFileParseError if the pattern is not found
  */
 function extractValue(content: string, pattern: RegExp, name: string, groupIndex = 1): string {
   const match = content.match(pattern);
   if (match?.[groupIndex] === undefined) {
-    throw new Error(`Could not find ${name} in Nix file`);
+    throw new NixFileParseError(`Could not find ${name} in Nix file`);
   }
   return match[groupIndex];
 }

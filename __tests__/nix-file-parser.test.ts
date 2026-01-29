@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { parseNixFile, updateNixFile } from '../src/nix-file-parser.js';
+import { NixFileParseError } from '../src/errors.js';
 import type { NixUpdateData } from '../src/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -99,51 +100,61 @@ describe('parseNixFile', () => {
 
   it('throws error when owner is missing', () => {
     const content = `{ fetchFromGitHub }: { repo = "test"; }`;
+    expect(() => parseNixFile(content)).toThrow(NixFileParseError);
     expect(() => parseNixFile(content)).toThrow('Could not find owner in Nix file');
   });
 
   it('throws error when repo is missing', () => {
     const content = `{ fetchFromGitHub }: { owner = "test"; }`;
+    expect(() => parseNixFile(content)).toThrow(NixFileParseError);
     expect(() => parseNixFile(content)).toThrow('Could not find repo in Nix file');
   });
 
   it('throws error when version is missing', () => {
     const content = `{ fetchFromGitHub }: { owner = "test"; repo = "test"; rev = "v1.0.0"; }`;
+    expect(() => parseNixFile(content)).toThrow(NixFileParseError);
     expect(() => parseNixFile(content)).toThrow('Could not find version in Nix file');
   });
 
   it('throws error when rev is missing', () => {
     const content = `{ fetchFromGitHub }: { owner = "test"; repo = "test"; version = "1.0.0"; }`;
+    expect(() => parseNixFile(content)).toThrow(NixFileParseError);
     expect(() => parseNixFile(content)).toThrow('Could not find rev in Nix file');
   });
 
   it('throws error when hash/sha256 is missing', () => {
     const content = `{ fetchFromGitHub }: { owner = "test"; repo = "test"; version = "1.0.0"; rev = "v1.0.0"; }`;
+    expect(() => parseNixFile(content)).toThrow(NixFileParseError);
     expect(() => parseNixFile(content)).toThrow('Could not find hash or sha256 in Nix file');
   });
 
   it('throws error for invalid owner with leading hyphen', () => {
     const content = `{ owner = "-invalid"; repo = "test"; version = "1.0.0"; rev = "v1.0.0"; sha256 = "sha256-test="; }`;
+    expect(() => parseNixFile(content)).toThrow(NixFileParseError);
     expect(() => parseNixFile(content)).toThrow('Invalid GitHub owner format');
   });
 
   it('throws error for invalid owner with trailing hyphen', () => {
     const content = `{ owner = "invalid-"; repo = "test"; version = "1.0.0"; rev = "v1.0.0"; sha256 = "sha256-test="; }`;
+    expect(() => parseNixFile(content)).toThrow(NixFileParseError);
     expect(() => parseNixFile(content)).toThrow('Invalid GitHub owner format');
   });
 
   it('throws error for owner with special characters', () => {
     const content = `{ owner = "user@evil"; repo = "test"; version = "1.0.0"; rev = "v1.0.0"; sha256 = "sha256-test="; }`;
+    expect(() => parseNixFile(content)).toThrow(NixFileParseError);
     expect(() => parseNixFile(content)).toThrow('Invalid GitHub owner format');
   });
 
   it('throws error for repo ending with .git', () => {
     const content = `{ owner = "valid"; repo = "repo.git"; version = "1.0.0"; rev = "v1.0.0"; sha256 = "sha256-test="; }`;
+    expect(() => parseNixFile(content)).toThrow(NixFileParseError);
     expect(() => parseNixFile(content)).toThrow('Invalid GitHub repository format');
   });
 
   it('throws error for repo with special characters', () => {
     const content = `{ owner = "valid"; repo = "repo/path"; version = "1.0.0"; rev = "v1.0.0"; sha256 = "sha256-test="; }`;
+    expect(() => parseNixFile(content)).toThrow(NixFileParseError);
     expect(() => parseNixFile(content)).toThrow('Invalid GitHub repository format');
   });
 

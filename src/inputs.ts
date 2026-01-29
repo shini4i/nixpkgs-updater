@@ -18,6 +18,7 @@ export function parseInputs(): ActionInputs {
   const version = core.getInput('version', { required: true });
   const targetRepo = core.getInput('target-repo', { required: true });
   const githubToken = core.getInput('github-token', { required: true });
+  const baseBranch = core.getInput('base-branch') || 'main';
 
   // Validate target-repo format
   const parts = targetRepo.split('/');
@@ -52,17 +53,34 @@ export function parseInputs(): ActionInputs {
     throw new InputValidationError('package-name must not be empty');
   }
 
+  // Validate package-name format (alphanumeric, dots, hyphens, underscores)
+  // This prevents shell/Nix injection when package-name is used in commands or PR body
+  const packageNamePattern = /^[a-zA-Z0-9._-]+$/;
+  if (!packageNamePattern.test(packageName)) {
+    throw new InputValidationError(
+      `Invalid package-name format: "${packageName}". Must contain only alphanumeric characters, dots, hyphens, or underscores.`
+    );
+  }
+
   // Validate version is not empty
   if (version.trim() === '') {
     throw new InputValidationError('version must not be empty');
   }
 
   // Validate version format (alphanumeric, dots, hyphens, underscores, plus signs)
-  // This prevents shell injection when version is used in nix-shell commands
+  // This prevents Nix string evaluation injection when version is interpolated in Nix expressions
   const versionPattern = /^[a-zA-Z0-9._+-]+$/;
   if (!versionPattern.test(version)) {
     throw new InputValidationError(
       `Invalid version format: "${version}". Must contain only alphanumeric characters, dots, hyphens, underscores, or plus signs.`
+    );
+  }
+
+  // Validate base-branch format (alphanumeric, hyphens, underscores, slashes)
+  const branchPattern = /^[a-zA-Z0-9._\-/]+$/;
+  if (!branchPattern.test(baseBranch)) {
+    throw new InputValidationError(
+      `Invalid base-branch format: "${baseBranch}". Must contain only alphanumeric characters, dots, hyphens, underscores, or slashes.`
     );
   }
 
@@ -71,7 +89,6 @@ export function parseInputs(): ActionInputs {
     version,
     targetRepo,
     githubToken,
-    targetOwner,
-    targetRepoName,
+    baseBranch,
   };
 }
