@@ -134,6 +134,149 @@ describe('parseInputs', () => {
     expect(() => parseInputs()).toThrow('Invalid base-branch format');
   });
 
+  it('throws error for base-branch with consecutive dots', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'feature..branch',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
+  it('throws error for base-branch with consecutive slashes', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'feature//branch',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
+  it('throws error for base-branch starting with dot', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': '.hidden-branch',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
+  it('throws error for base-branch starting with slash', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': '/leading-slash',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
+  it('throws error for base-branch ending with dot', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'branch.',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
+  it('throws error for base-branch ending with slash', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'branch/',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
+  it('throws error for base-branch containing @{ sequence', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'branch@{upstream}',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
+  it('throws error for base-branch ending with .lock', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'branch.lock',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
+  it('throws error for base-branch starting with hyphen', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': '-feature',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
+  it('throws error for base-branch with path component starting with dot', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'feature/.hidden/branch',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
+  it('throws error for base-branch with path component ending with .lock', () => {
+    setupMockInputs({
+      'package-name': 'my-package',
+      version: 'v1.0.0',
+      'target-repo': 'owner/repo',
+      'github-token': 'ghp_token123',
+      'base-branch': 'feature.lock/branch',
+    });
+
+    expect(() => parseInputs()).toThrow(InputValidationError);
+    expect(() => parseInputs()).toThrow('Invalid base-branch format');
+  });
+
   it('throws error for invalid target-repo format without slash', () => {
     setupMockInputs({
       'package-name': 'my-package',

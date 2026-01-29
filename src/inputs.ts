@@ -76,11 +76,31 @@ export function parseInputs(): ActionInputs {
     );
   }
 
-  // Validate base-branch format (alphanumeric, hyphens, underscores, slashes)
-  const branchPattern = /^[a-zA-Z0-9._\-/]+$/;
-  if (!branchPattern.test(baseBranch)) {
+  // Validate base-branch format following git ref naming rules
+  // First check for valid characters (alphanumeric, dots, hyphens, underscores, slashes)
+  const branchCharPattern = /^[a-zA-Z0-9._\-/]+$/;
+  if (!branchCharPattern.test(baseBranch)) {
     throw new InputValidationError(
       `Invalid base-branch format: "${baseBranch}". Must contain only alphanumeric characters, dots, hyphens, underscores, or slashes.`
+    );
+  }
+
+  // Additional git ref validations per git-check-ref-format rules
+  if (
+    baseBranch.includes('..') ||
+    baseBranch.includes('//') ||
+    baseBranch.startsWith('.') ||
+    baseBranch.startsWith('/') ||
+    baseBranch.startsWith('-') ||
+    baseBranch.endsWith('.') ||
+    baseBranch.endsWith('/') ||
+    baseBranch.includes('@{') ||
+    baseBranch.endsWith('.lock') ||
+    baseBranch.includes('/.') ||
+    baseBranch.includes('.lock/')
+  ) {
+    throw new InputValidationError(
+      `Invalid base-branch format: "${baseBranch}". Branch names must not contain "..", "//", "@{", must not start with "-", must not start or end with "." or "/", and must not end with ".lock". Path components cannot start with "." or end with ".lock".`
     );
   }
 
