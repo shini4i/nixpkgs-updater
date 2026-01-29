@@ -16,6 +16,7 @@ export interface PROptions {
  * @param branchName - Branch name for the PR
  * @param packageName - Name of the package being updated
  * @param version - New version of the package
+ * @param baseBranch - Base branch to create PR against (default: 'main')
  * @param options - Optional PR settings
  * @returns Result containing PR URL, number, and whether it was created
  * @throws GitHubAPIError if PR creation/update fails
@@ -26,7 +27,8 @@ export interface PROptions {
  *   'ghp_token',
  *   'chore/my-package',
  *   'my-package',
- *   '1.0.0'
+ *   '1.0.0',
+ *   'main'
  * );
  */
-export declare function createOrUpdatePR(targetRepo: string, token: string, branchName: string, packageName: string, version: string, options?: PROptions): Promise<PRResult>;
+export declare function createOrUpdatePR(targetRepo: string, token: string, branchName: string, packageName: string, version: string, baseBranch?: string, options?: PROptions): Promise<PRResult>;

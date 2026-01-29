@@ -1,7 +1,21 @@
 import * as exec from '@actions/exec';
 import * as core from '@actions/core';
 
-import type { PrefetchResult } from './types.js';
+import { withRetry, isTransientError } from './utils.js';
+
+/**
+ * Type guard to validate if an object is a valid prefetch result with a hash field.
+ *
+ * @param obj - The object to validate
+ * @returns True if the object has a valid hash field
+ */
+function isPrefetchResult(obj: unknown): obj is { hash: string } {
+  if (typeof obj !== 'object' || obj === null) {
+    return false;
+  }
+  const record = obj as Record<string, unknown>;
+  return typeof record.hash === 'string' && record.hash !== '';
+}
 
 /**
  * Fetches the SHA256 hash of a GitHub repository at a specific revision
@@ -18,9 +32,12 @@ import type { PrefetchResult } from './types.js';
  * console.log(hash); // 'sha256-abc123...'
  */
 export async function fetchHash(owner: string, repo: string, rev: string): Promise<string> {
+  core.debug(`Fetching hash for ${owner}/${repo} at rev ${rev}`);
+
   // Install nix-prefetch-github and its dependency nix-prefetch-git
   // nix-prefetch-git is NOT part of base Nix - it's a separate package that nix-prefetch-github needs
   let installStderr = '';
+  core.debug('Installing nix-prefetch-git and nix-prefetch-github');
   const installExitCode = await exec.exec(
     'nix',
     ['profile', 'add', 'nixpkgs#nix-prefetch-git', 'nixpkgs#nix-prefetch-github'],
@@ -42,53 +59,66 @@ export async function fetchHash(owner: string, repo: string, rev: string): Promi
     );
   }
 
-  let stdout = '';
-  let stderr = '';
+  core.debug('Running nix-prefetch-github');
 
-  const options: exec.ExecOptions = {
-    listeners: {
-      stdout: (data: Buffer) => {
-        stdout += data.toString();
-      },
-      stderr: (data: Buffer) => {
-        stderr += data.toString();
-      },
+  const result = await withRetry(
+    async () => {
+      let stdout = '';
+      let stderr = '';
+
+      const options: exec.ExecOptions = {
+        listeners: {
+          stdout: (data: Buffer) => {
+            stdout += data.toString();
+          },
+          stderr: (data: Buffer) => {
+            stderr += data.toString();
+          },
+        },
+        ignoreReturnCode: true,
+      };
+
+      const exitCode = await exec.exec('nix-prefetch-github', [owner, repo, '--rev', rev], options);
+
+      if (exitCode !== 0) {
+        // Extract the last meaningful lines from stderr (skip download progress)
+        const stderrLines = stderr.split('\n');
+        const errorLines = stderrLines
+          .filter((line) => /error|failed|unable/i.test(line))
+          .slice(-5)
+          .join('\n');
+        const errorMessage = errorLines || stderrLines.slice(-10).join('\n');
+        throw new Error(
+          `nix-prefetch-github failed with exit code ${String(exitCode)}: ${errorMessage}`
+        );
+      }
+
+      return stdout;
     },
-    ignoreReturnCode: true,
-  };
+    {
+      maxAttempts: 3,
+      operationName: 'nix-prefetch-github',
+      shouldRetry: isTransientError,
+    }
+  );
 
-  const exitCode = await exec.exec('nix-prefetch-github', [owner, repo, '--rev', rev], options);
-
-  if (exitCode !== 0) {
-    // Extract the last meaningful lines from stderr (skip download progress)
-    const stderrLines = stderr.split('\n');
-    const errorLines = stderrLines
-      .filter((line) => /error|failed|unable/i.test(line))
-      .slice(-5)
-      .join('\n');
-    const errorMessage = errorLines || stderrLines.slice(-10).join('\n');
-    throw new Error(
-      `nix-prefetch-github failed with exit code ${String(exitCode)}: ${errorMessage}`
-    );
-  }
+  core.debug('Parsing nix-prefetch-github output');
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stdout);
+    parsed = JSON.parse(result);
   } catch {
-    throw new Error(`Failed to parse nix-prefetch-github output: ${stdout}`);
+    throw new Error(`Failed to parse nix-prefetch-github output: ${result}`);
   }
 
   // Validate the parsed object has required fields
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    !('hash' in parsed) ||
-    typeof (parsed as Record<string, unknown>).hash !== 'string' ||
-    (parsed as Record<string, unknown>).hash === ''
-  ) {
-    throw new Error('nix-prefetch-github did not return a hash');
+  if (!isPrefetchResult(parsed)) {
+    throw new Error(
+      `nix-prefetch-github returned invalid output: expected object with non-empty "hash" string field`
+    );
   }
 
-  return (parsed as PrefetchResult).hash;
+  core.debug(`Successfully fetched hash: ${parsed.hash.substring(0, 20)}...`);
+
+  return parsed.hash;
 }

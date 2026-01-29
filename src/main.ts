@@ -3,7 +3,12 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 import { parseInputs } from './inputs.js';
-import { cloneRepository, createBranch, commitAndPush } from './git-operations.js';
+import {
+  cloneRepository,
+  createBranch,
+  commitAndPush,
+  cleanupRepository,
+} from './git-operations.js';
 import { parseNixFile, updateNixFile } from './nix-file-parser.js';
 import { fetchHash } from './nix-prefetch.js';
 import { createOrUpdatePR } from './github-api.js';
@@ -22,14 +27,18 @@ import {
  * Orchestrates the entire update workflow.
  */
 async function run(): Promise<void> {
+  let repoPath: string | undefined;
+
   try {
     // Step 1: Parse and validate inputs
+    core.debug('Parsing action inputs');
     const inputs = parseInputs();
     core.info(`Updating package: ${inputs.packageName} to version ${inputs.version}`);
+    core.debug(`Base branch: ${inputs.baseBranch}`);
 
     // Step 2: Clone target repository
     core.info(`Cloning repository: ${inputs.targetRepo}`);
-    const repoPath = await cloneRepository(inputs.targetRepo, inputs.githubToken);
+    repoPath = await cloneRepository(inputs.targetRepo, inputs.githubToken);
     core.info(`Repository cloned to: ${repoPath}`);
 
     // Step 3: Read and parse the Nix file
@@ -47,6 +56,9 @@ async function run(): Promise<void> {
 
     const nixData = parseNixFile(nixContent);
     core.info(`Current version: ${nixData.version}, rev: ${nixData.rev}`);
+    core.debug(
+      `Nix file data: owner=${nixData.owner}, repo=${nixData.repo}, revUsesVersion=${String(nixData.revUsesVersion)}, hasVendorHash=${String(nixData.hasVendorHash)}`
+    );
 
     if (nixData.revUsesVersion) {
       core.info('Detected rev uses ${version} interpolation - will skip rev update');
@@ -69,6 +81,7 @@ async function run(): Promise<void> {
 
     // Step 5: Update the Nix file
     const cleanVersion = stripVersionPrefix(inputs.version);
+    core.debug(`Clean version (without prefix): ${cleanVersion}`);
     const updatedContent = updateNixFile(
       nixContent,
       {
@@ -85,7 +98,7 @@ async function run(): Promise<void> {
     // Step 6: Create branch, commit, and push
     const branchName = formatBranchName(inputs.packageName);
     core.info(`Creating branch: ${branchName}`);
-    await createBranch(repoPath, branchName);
+    await createBranch(repoPath, branchName, inputs.baseBranch);
 
     // Build commit message based on what was updated
     const commitChanges = [`- Updated version to ${cleanVersion}`];
@@ -109,6 +122,7 @@ ${commitChanges.join('\n')}`;
       branchName,
       inputs.packageName,
       cleanVersion,
+      inputs.baseBranch,
       {
         hasVendorHash: nixData.hasVendorHash,
         revUsesVersion: nixData.revUsesVersion,
@@ -127,6 +141,12 @@ ${commitChanges.join('\n')}`;
     }
   } catch (error) {
     handleError(error);
+  } finally {
+    // Clean up temporary directory
+    if (repoPath !== undefined && repoPath !== '') {
+      core.debug('Cleaning up temporary directory');
+      await cleanupRepository(repoPath);
+    }
   }
 }
 
@@ -135,7 +155,7 @@ ${commitChanges.join('\n')}`;
  *
  * @param error - The error to handle
  */
-function handleError(error: unknown): void {
+export function handleError(error: unknown): void {
   if (error instanceof InputValidationError) {
     core.setFailed(`Input validation error: ${error.message}`);
   } else if (error instanceof NixPrefetchError) {

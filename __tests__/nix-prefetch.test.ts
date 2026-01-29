@@ -4,6 +4,7 @@ import type * as execModule from '@actions/exec';
 // Mock @actions/exec before importing the module under test
 const mockExec = jest.fn<typeof execModule.exec>();
 const mockWarning = jest.fn();
+const mockDebug = jest.fn();
 
 jest.unstable_mockModule('@actions/exec', () => ({
   exec: mockExec,
@@ -11,6 +12,7 @@ jest.unstable_mockModule('@actions/exec', () => ({
 
 jest.unstable_mockModule('@actions/core', () => ({
   warning: mockWarning,
+  debug: mockDebug,
 }));
 
 // Import after mocking
@@ -120,7 +122,7 @@ describe('fetchHash', () => {
     });
 
     await expect(fetchHash('owner', 'repo', 'v1.0.0')).rejects.toThrow(
-      'nix-prefetch-github did not return a hash'
+      'nix-prefetch-github returned invalid output'
     );
   });
 
@@ -214,7 +216,7 @@ describe('fetchHash', () => {
     });
 
     await expect(fetchHash('owner', 'repo', 'v1.0.0')).rejects.toThrow(
-      'nix-prefetch-github did not return a hash'
+      'nix-prefetch-github returned invalid output'
     );
   });
 
@@ -234,7 +236,7 @@ describe('fetchHash', () => {
     });
 
     await expect(fetchHash('owner', 'repo', 'v1.0.0')).rejects.toThrow(
-      'nix-prefetch-github did not return a hash'
+      'nix-prefetch-github returned invalid output'
     );
   });
 
@@ -247,7 +249,7 @@ describe('fetchHash', () => {
     });
 
     await expect(fetchHash('owner', 'repo', 'v1.0.0')).rejects.toThrow(
-      'nix-prefetch-github did not return a hash'
+      'nix-prefetch-github returned invalid output'
     );
   });
 
@@ -260,7 +262,7 @@ describe('fetchHash', () => {
     });
 
     await expect(fetchHash('owner', 'repo', 'v1.0.0')).rejects.toThrow(
-      'nix-prefetch-github did not return a hash'
+      'nix-prefetch-github returned invalid output'
     );
   });
 
@@ -416,5 +418,25 @@ describe('fetchHash', () => {
     });
 
     await expect(fetchHash('owner', 'repo', 'v1.0.0')).rejects.toThrow('UNABLE TO CONNECT');
+  });
+
+  it('logs debug messages during execution', async () => {
+    const mockOutput = JSON.stringify({
+      owner: 'owner',
+      repo: 'repo',
+      rev: 'v1.0.0',
+      hash: 'sha256-HASH=',
+    });
+
+    mockExec.mockImplementation((cmd, _args, options) => {
+      if (cmd === 'nix-prefetch-github') {
+        options?.listeners?.stdout?.(Buffer.from(mockOutput));
+      }
+      return Promise.resolve(0);
+    });
+
+    await fetchHash('owner', 'repo', 'v1.0.0');
+
+    expect(mockDebug).toHaveBeenCalledWith(expect.stringContaining('Fetching hash'));
   });
 });

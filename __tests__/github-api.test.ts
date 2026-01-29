@@ -6,6 +6,7 @@ const mockListPulls = jest.fn();
 const mockUpdatePull = jest.fn();
 const mockCreatePull = jest.fn();
 const mockInfo = jest.fn();
+const mockDebug = jest.fn();
 
 jest.unstable_mockModule('@actions/github', () => ({
   getOctokit: mockGetOctokit,
@@ -13,6 +14,7 @@ jest.unstable_mockModule('@actions/github', () => ({
 
 jest.unstable_mockModule('@actions/core', () => ({
   info: mockInfo,
+  debug: mockDebug,
 }));
 
 // Import after mocking
@@ -63,6 +65,57 @@ describe('createOrUpdatePR', () => {
         title: 'bump my-package version to 1.0.0',
         head: 'chore/update-v1.0.0',
         base: 'main',
+      })
+    );
+  });
+
+  it('creates PR with custom base branch', async () => {
+    mockListPulls.mockResolvedValue({ data: [] });
+    mockCreatePull.mockResolvedValue({
+      data: {
+        html_url: 'https://github.com/owner/repo/pull/42',
+        number: 42,
+      },
+    });
+
+    const result = await createOrUpdatePR(
+      'owner/repo',
+      'token123',
+      'chore/update-v1.0.0',
+      'my-package',
+      '1.0.0',
+      'develop'
+    );
+
+    expect(result.created).toBe(true);
+    expect(mockCreatePull).toHaveBeenCalledWith(
+      expect.objectContaining({
+        base: 'develop',
+      })
+    );
+  });
+
+  it('creates PR with feature branch as base', async () => {
+    mockListPulls.mockResolvedValue({ data: [] });
+    mockCreatePull.mockResolvedValue({
+      data: {
+        html_url: 'https://github.com/owner/repo/pull/42',
+        number: 42,
+      },
+    });
+
+    await createOrUpdatePR(
+      'owner/repo',
+      'token123',
+      'chore/update-v1.0.0',
+      'my-package',
+      '1.0.0',
+      'release/v2.0'
+    );
+
+    expect(mockCreatePull).toHaveBeenCalledWith(
+      expect.objectContaining({
+        base: 'release/v2.0',
       })
     );
   });
@@ -152,7 +205,7 @@ describe('createOrUpdatePR', () => {
       },
     });
 
-    await createOrUpdatePR('owner/repo', 'token', 'branch', 'go-package', '1.0.0', {
+    await createOrUpdatePR('owner/repo', 'token', 'branch', 'go-package', '1.0.0', 'main', {
       hasVendorHash: true,
     });
 
@@ -182,7 +235,7 @@ describe('createOrUpdatePR', () => {
       },
     });
 
-    await createOrUpdatePR('owner/repo', 'token', 'branch', 'my-package', '1.0.0', {
+    await createOrUpdatePR('owner/repo', 'token', 'branch', 'my-package', '1.0.0', 'main', {
       revUsesVersion: true,
     });
 
@@ -201,7 +254,7 @@ describe('createOrUpdatePR', () => {
       },
     });
 
-    await createOrUpdatePR('owner/repo', 'token', 'branch', 'my-package', '1.0.0', {
+    await createOrUpdatePR('owner/repo', 'token', 'branch', 'my-package', '1.0.0', 'main', {
       revUsesVersion: false,
     });
 
@@ -221,7 +274,7 @@ describe('createOrUpdatePR', () => {
       },
     });
 
-    await createOrUpdatePR('owner/repo', 'token', 'branch', 'go-package', '1.0.0', {
+    await createOrUpdatePR('owner/repo', 'token', 'branch', 'go-package', '1.0.0', 'main', {
       hasVendorHash: true,
       revUsesVersion: true,
     });
@@ -283,5 +336,19 @@ describe('createOrUpdatePR', () => {
     await createOrUpdatePR('owner/repo', 'token', 'branch', 'my-package', '1.0.0');
 
     expect(mockInfo).toHaveBeenCalledWith('Found existing PR #99, updating...');
+  });
+
+  it('logs debug messages during PR creation', async () => {
+    mockListPulls.mockResolvedValue({ data: [] });
+    mockCreatePull.mockResolvedValue({
+      data: {
+        html_url: 'https://github.com/owner/repo/pull/1',
+        number: 1,
+      },
+    });
+
+    await createOrUpdatePR('owner/repo', 'token', 'branch', 'package', '1.0.0', 'main');
+
+    expect(mockDebug).toHaveBeenCalledWith(expect.stringContaining('Creating/updating PR'));
   });
 });

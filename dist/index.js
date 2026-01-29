@@ -33177,12 +33177,34 @@ module.exports = parseParams
 /******/ }
 /******/ 
 /************************************************************************/
+/******/ /* webpack/runtime/define property getters */
+/******/ (() => {
+/******/ 	// define getter functions for harmony exports
+/******/ 	__nccwpck_require__.d = (exports, definition) => {
+/******/ 		for(var key in definition) {
+/******/ 			if(__nccwpck_require__.o(definition, key) && !__nccwpck_require__.o(exports, key)) {
+/******/ 				Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 			}
+/******/ 		}
+/******/ 	};
+/******/ })();
+/******/ 
+/******/ /* webpack/runtime/hasOwnProperty shorthand */
+/******/ (() => {
+/******/ 	__nccwpck_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
+/******/ })();
+/******/ 
 /******/ /* webpack/runtime/compat */
 /******/ 
 /******/ if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = new URL('.', import.meta.url).pathname.slice(import.meta.url.match(/^file:\/\/\/\w:/) ? 1 : 0, -1) + "/";
 /******/ 
 /************************************************************************/
 var __webpack_exports__ = {};
+
+// EXPORTS
+__nccwpck_require__.d(__webpack_exports__, {
+  H: () => (/* binding */ handleError)
+});
 
 // EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
 var core = __nccwpck_require__(7484);
@@ -33273,6 +33295,7 @@ function parseInputs() {
     const version = core.getInput('version', { required: true });
     const targetRepo = core.getInput('target-repo', { required: true });
     const githubToken = core.getInput('github-token', { required: true });
+    const baseBranch = core.getInput('base-branch') || 'main';
     // Validate target-repo format
     const parts = targetRepo.split('/');
     if (parts.length !== 2) {
@@ -33293,23 +33316,48 @@ function parseInputs() {
     if (packageName.trim() === '') {
         throw new InputValidationError('package-name must not be empty');
     }
+    // Validate package-name format (alphanumeric, dots, hyphens, underscores)
+    // This prevents shell/Nix injection when package-name is used in commands or PR body
+    const packageNamePattern = /^[a-zA-Z0-9._-]+$/;
+    if (!packageNamePattern.test(packageName)) {
+        throw new InputValidationError(`Invalid package-name format: "${packageName}". Must contain only alphanumeric characters, dots, hyphens, or underscores.`);
+    }
     // Validate version is not empty
     if (version.trim() === '') {
         throw new InputValidationError('version must not be empty');
     }
     // Validate version format (alphanumeric, dots, hyphens, underscores, plus signs)
-    // This prevents shell injection when version is used in nix-shell commands
+    // This prevents Nix string evaluation injection when version is interpolated in Nix expressions
     const versionPattern = /^[a-zA-Z0-9._+-]+$/;
     if (!versionPattern.test(version)) {
         throw new InputValidationError(`Invalid version format: "${version}". Must contain only alphanumeric characters, dots, hyphens, underscores, or plus signs.`);
+    }
+    // Validate base-branch format following git ref naming rules
+    // First check for valid characters (alphanumeric, dots, hyphens, underscores, slashes)
+    const branchCharPattern = /^[a-zA-Z0-9._\-/]+$/;
+    if (!branchCharPattern.test(baseBranch)) {
+        throw new InputValidationError(`Invalid base-branch format: "${baseBranch}". Must contain only alphanumeric characters, dots, hyphens, underscores, or slashes.`);
+    }
+    // Additional git ref validations per git-check-ref-format rules
+    if (baseBranch.includes('..') ||
+        baseBranch.includes('//') ||
+        baseBranch.startsWith('.') ||
+        baseBranch.startsWith('/') ||
+        baseBranch.startsWith('-') ||
+        baseBranch.endsWith('.') ||
+        baseBranch.endsWith('/') ||
+        baseBranch.includes('@{') ||
+        baseBranch.endsWith('.lock') ||
+        baseBranch.includes('/.') ||
+        baseBranch.includes('.lock/')) {
+        throw new InputValidationError(`Invalid base-branch format: "${baseBranch}". Branch names must not contain "..", "//", "@{", must not start with "-", must not start or end with "." or "/", and must not end with ".lock". Path components cannot start with "." or end with ".lock".`);
     }
     return {
         packageName,
         version,
         targetRepo,
         githubToken,
-        targetOwner,
-        targetRepoName,
+        baseBranch,
     };
 }
 
@@ -33321,6 +33369,85 @@ var io = __nccwpck_require__(4994);
 var external_os_ = __nccwpck_require__(857);
 // EXTERNAL MODULE: external "crypto"
 var external_crypto_ = __nccwpck_require__(6982);
+;// CONCATENATED MODULE: ./src/utils.ts
+
+/**
+ * Executes an async function with exponential backoff retry logic.
+ *
+ * @param fn - The async function to execute
+ * @param options - Retry configuration options
+ * @returns The result of the function if successful
+ * @throws The last error if all retry attempts fail
+ *
+ * @example
+ * ```typescript
+ * const result = await withRetry(
+ *   () => fetchData(),
+ *   { maxAttempts: 3, operationName: 'fetchData' }
+ * );
+ * ```
+ */
+async function withRetry(fn, options = {}) {
+    const { maxAttempts = 3, baseDelayMs = 1000, shouldRetry, operationName } = options;
+    let lastError;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return await fn();
+        }
+        catch (error) {
+            lastError = error;
+            // Check if we should retry this error
+            if (shouldRetry && !shouldRetry(error)) {
+                throw error;
+            }
+            // If this was the last attempt, don't log retry message
+            if (attempt === maxAttempts) {
+                break;
+            }
+            const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
+            const opName = operationName ?? 'operation';
+            core.debug(`${opName} failed (attempt ${String(attempt)}/${String(maxAttempts)}), retrying in ${String(delayMs)}ms: ${error instanceof Error ? error.message : String(error)}`);
+            await sleep(delayMs);
+        }
+    }
+    throw lastError;
+}
+/**
+ * Sleeps for the specified number of milliseconds.
+ *
+ * @param ms - Number of milliseconds to sleep
+ */
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+/**
+ * Determines if an error is likely a transient network error that should be retried.
+ *
+ * @param error - The error to check
+ * @returns True if the error appears to be a transient network issue
+ */
+function isTransientError(error) {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+    const message = error.message.toLowerCase();
+    // Common transient error patterns
+    const transientPatterns = [
+        'econnreset',
+        'econnrefused',
+        'etimedout',
+        'socket hang up',
+        'network',
+        'timeout',
+        'rate limit',
+        '429', // Too Many Requests
+        '502', // Bad Gateway
+        '503', // Service Unavailable
+        '504', // Gateway Timeout
+    ];
+    return transientPatterns.some((pattern) => message.includes(pattern));
+}
+
 ;// CONCATENATED MODULE: ./src/git-operations.ts
 
 
@@ -33329,6 +33456,13 @@ var external_crypto_ = __nccwpck_require__(6982);
 
 
 
+
+
+/** Git bot user configuration. */
+const GIT_BOT_USER = {
+    name: 'github-actions[bot]',
+    email: 'github-actions[bot]@users.noreply.github.com',
+};
 /**
  * Generates a unique temporary directory path.
  *
@@ -33355,20 +33489,28 @@ async function cloneRepository(targetRepo, token) {
     const tempDir = getTempDir();
     await io.mkdirP(tempDir);
     const cloneUrl = `https://x-access-token:${token}@github.com/${targetRepo}.git`;
+    core.debug(`Cloning repository ${targetRepo} to ${tempDir}`);
     try {
-        await exec.exec('git', ['clone', '--depth', '1', cloneUrl, tempDir], {
-            silent: true,
+        await withRetry(async () => {
+            await exec.exec('git', ['clone', '--depth', '1', cloneUrl, tempDir], {
+                silent: true,
+            });
+        }, {
+            maxAttempts: 3,
+            operationName: 'git clone',
+            shouldRetry: isTransientError,
         });
     }
     catch (error) {
         throw new GitOperationError(`Failed to clone repository ${targetRepo}: ${error instanceof Error ? error.message : String(error)}`);
     }
+    core.debug(`Configuring git user: ${GIT_BOT_USER.name}`);
     // Configure git user
-    await exec.exec('git', ['config', 'user.name', 'github-actions[bot]'], {
+    await exec.exec('git', ['config', 'user.name', GIT_BOT_USER.name], {
         cwd: tempDir,
         silent: true,
     });
-    await exec.exec('git', ['config', 'user.email', 'github-actions[bot]@users.noreply.github.com'], {
+    await exec.exec('git', ['config', 'user.email', GIT_BOT_USER.email], {
         cwd: tempDir,
         silent: true,
     });
@@ -33376,17 +33518,19 @@ async function cloneRepository(targetRepo, token) {
 }
 /**
  * Creates or checks out a branch in the repository.
- * If the branch exists remotely, it will be checked out.
+ * If the branch exists remotely, it will be checked out and reset to the base branch.
  * Otherwise, a new branch will be created.
  *
  * @param repoPath - Path to the repository
  * @param branchName - Name of the branch to create or checkout
+ * @param baseBranch - Base branch to reset to if branch exists (default: 'main')
  * @throws GitOperationError if branch operations fail
  *
  * @example
- * await createBranch('/tmp/repo', 'chore/update-package-v1.0.0');
+ * await createBranch('/tmp/repo', 'chore/update-package-v1.0.0', 'main');
  */
-async function createBranch(repoPath, branchName) {
+async function createBranch(repoPath, branchName, baseBranch = 'main') {
+    core.debug(`Creating/checking out branch: ${branchName} (base: ${baseBranch})`);
     // Fetch to check if branch exists remotely
     await exec.exec('git', ['fetch', 'origin', branchName], {
         cwd: repoPath,
@@ -33401,6 +33545,7 @@ async function createBranch(repoPath, branchName) {
     });
     if (checkoutResult !== 0) {
         // Branch doesn't exist, create it
+        core.debug(`Branch ${branchName} does not exist, creating new branch`);
         try {
             await exec.exec('git', ['checkout', '-b', branchName], {
                 cwd: repoPath,
@@ -33412,8 +33557,9 @@ async function createBranch(repoPath, branchName) {
         }
     }
     else {
-        // Branch exists, reset to origin/main to ensure we have the latest
-        await exec.exec('git', ['reset', '--hard', 'origin/main'], {
+        // Branch exists, reset to base branch to ensure we have the latest
+        core.debug(`Branch ${branchName} exists, resetting to origin/${baseBranch}`);
+        await exec.exec('git', ['reset', '--hard', `origin/${baseBranch}`], {
             cwd: repoPath,
             ignoreReturnCode: true,
             silent: true,
@@ -33421,7 +33567,70 @@ async function createBranch(repoPath, branchName) {
     }
 }
 /**
+ * Stages all changes in the repository.
+ *
+ * @param repoPath - Path to the repository
+ * @throws GitOperationError if staging fails
+ */
+async function stageChanges(repoPath) {
+    core.debug('Staging all changes');
+    try {
+        await exec.exec('git', ['add', '-A'], {
+            cwd: repoPath,
+            silent: true,
+        });
+    }
+    catch (error) {
+        throw new GitOperationError(`Failed to stage changes: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+/**
+ * Creates a commit with the given message.
+ *
+ * @param repoPath - Path to the repository
+ * @param message - Commit message
+ * @throws GitOperationError if commit fails
+ */
+async function createCommit(repoPath, message) {
+    core.debug(`Creating commit: ${message.split('\n')[0] ?? 'empty message'}`);
+    try {
+        await exec.exec('git', ['commit', '-m', message], {
+            cwd: repoPath,
+            silent: true,
+        });
+    }
+    catch (error) {
+        throw new GitOperationError(`Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+/**
+ * Pushes a branch to the remote repository with force-with-lease.
+ *
+ * @param repoPath - Path to the repository
+ * @param branchName - Name of the branch to push
+ * @throws GitOperationError if push fails
+ */
+async function pushBranch(repoPath, branchName) {
+    core.debug(`Pushing branch ${branchName} with force-with-lease`);
+    try {
+        await withRetry(async () => {
+            await exec.exec('git', ['push', '--force-with-lease', 'origin', branchName], {
+                cwd: repoPath,
+                silent: true,
+            });
+        }, {
+            maxAttempts: 3,
+            operationName: 'git push',
+            shouldRetry: isTransientError,
+        });
+    }
+    catch (error) {
+        throw new GitOperationError(`Failed to push to ${branchName}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+/**
  * Commits changes and pushes to the remote repository.
+ * Uses force-with-lease to safely update existing branches.
  *
  * @param repoPath - Path to the repository
  * @param branchName - Name of the branch to push
@@ -33432,32 +33641,36 @@ async function createBranch(repoPath, branchName) {
  * await commitAndPush('/tmp/repo', 'chore/update', 'chore(package): bump version');
  */
 async function commitAndPush(repoPath, branchName, message) {
+    await stageChanges(repoPath);
+    await createCommit(repoPath, message);
+    await pushBranch(repoPath, branchName);
+}
+/**
+ * Cleans up a cloned repository by removing the temporary directory.
+ *
+ * @param repoPath - Path to the repository to clean up
+ *
+ * @example
+ * await cleanupRepository('/tmp/nixpkgs-updater-abc123');
+ */
+async function cleanupRepository(repoPath) {
+    if (!repoPath) {
+        core.debug('No repository path provided for cleanup');
+        return;
+    }
+    core.debug(`Cleaning up repository at ${repoPath}`);
     try {
-        await exec.exec('git', ['add', '-A'], {
-            cwd: repoPath,
-            silent: true,
-        });
-        await exec.exec('git', ['commit', '-m', message], {
-            cwd: repoPath,
-            silent: true,
-        });
+        await promises_namespaceObject.rm(repoPath, { recursive: true, force: true });
+        core.debug(`Successfully cleaned up ${repoPath}`);
     }
     catch (error) {
-        throw new GitOperationError(`Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    try {
-        // Force push to update existing branch
-        await exec.exec('git', ['push', '--force', 'origin', branchName], {
-            cwd: repoPath,
-            silent: true,
-        });
-    }
-    catch (error) {
-        throw new GitOperationError(`Failed to push to ${branchName}: ${error instanceof Error ? error.message : String(error)}`);
+        // Log warning but don't fail the action
+        core.warning(`Failed to clean up temporary directory ${repoPath}: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 
 ;// CONCATENATED MODULE: ./src/nix-file-parser.ts
+
 /**
  * Regular expression patterns for extracting data from Nix files.
  * Supports both legacy `sha256` and modern `hash` (SRI format) fields.
@@ -33478,13 +33691,13 @@ const PATTERNS = {
  * GitHub usernames: 1-39 characters, alphanumeric or hyphens, cannot start/end with hyphen.
  *
  * @param owner - The owner string to validate
- * @throws Error if the owner format is invalid
+ * @throws NixFileParseError if the owner format is invalid
  */
 function validateGitHubOwner(owner) {
     // GitHub username rules: alphanumeric and hyphens, 1-39 chars, no leading/trailing hyphens
     const ownerPattern = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/;
     if (!ownerPattern.test(owner)) {
-        throw new Error(`Invalid GitHub owner format: "${owner}". Must be 1-39 alphanumeric characters or hyphens, cannot start/end with hyphen.`);
+        throw new NixFileParseError(`Invalid GitHub owner format: "${owner}". Must be 1-39 alphanumeric characters or hyphens, cannot start/end with hyphen.`);
     }
 }
 /**
@@ -33492,13 +33705,13 @@ function validateGitHubOwner(owner) {
  * GitHub repos: alphanumeric, hyphens, underscores, periods; cannot end with .git.
  *
  * @param repo - The repository name to validate
- * @throws Error if the repository format is invalid
+ * @throws NixFileParseError if the repository format is invalid
  */
 function validateGitHubRepo(repo) {
     // GitHub repo rules: alphanumeric, hyphens, underscores, periods; 1-100 chars; no .git suffix
     const repoPattern = /^[a-zA-Z0-9._-]+$/;
     if (!repoPattern.test(repo) || repo.endsWith('.git') || repo.length > 100) {
-        throw new Error(`Invalid GitHub repository format: "${repo}". Must contain only alphanumeric characters, hyphens, underscores, or periods. Cannot end with .git.`);
+        throw new NixFileParseError(`Invalid GitHub repository format: "${repo}". Must contain only alphanumeric characters, hyphens, underscores, or periods. Cannot end with .git.`);
     }
 }
 /**
@@ -33509,12 +33722,12 @@ function validateGitHubRepo(repo) {
  * @param name - The name of the field (for error messages)
  * @param groupIndex - The capture group index to extract (default: 1)
  * @returns The extracted value
- * @throws Error if the pattern is not found
+ * @throws NixFileParseError if the pattern is not found
  */
 function extractValue(content, pattern, name, groupIndex = 1) {
     const match = content.match(pattern);
     if (match?.[groupIndex] === undefined) {
-        throw new Error(`Could not find ${name} in Nix file`);
+        throw new NixFileParseError(`Could not find ${name} in Nix file`);
     }
     return match[groupIndex];
 }
@@ -33593,6 +33806,21 @@ function updateNixFile(content, updates, options = {}) {
 
 ;// CONCATENATED MODULE: ./src/nix-prefetch.ts
 
+
+
+/**
+ * Type guard to validate if an object is a valid prefetch result with a hash field.
+ *
+ * @param obj - The object to validate
+ * @returns True if the object has a valid hash field
+ */
+function isPrefetchResult(obj) {
+    if (typeof obj !== 'object' || obj === null) {
+        return false;
+    }
+    const record = obj;
+    return typeof record.hash === 'string' && record.hash !== '';
+}
 /**
  * Fetches the SHA256 hash of a GitHub repository at a specific revision
  * using nix-prefetch-github.
@@ -33608,53 +33836,69 @@ function updateNixFile(content, updates, options = {}) {
  * console.log(hash); // 'sha256-abc123...'
  */
 async function fetchHash(owner, repo, rev) {
+    core.debug(`Fetching hash for ${owner}/${repo} at rev ${rev}`);
     // Install nix-prefetch-github and its dependency nix-prefetch-git
     // nix-prefetch-git is NOT part of base Nix - it's a separate package that nix-prefetch-github needs
-    await exec.exec('nix', ['profile', 'add', 'nixpkgs#nix-prefetch-git', 'nixpkgs#nix-prefetch-github'], {
+    let installStderr = '';
+    core.debug('Installing nix-prefetch-git and nix-prefetch-github');
+    const installExitCode = await exec.exec('nix', ['profile', 'add', 'nixpkgs#nix-prefetch-git', 'nixpkgs#nix-prefetch-github'], {
         ignoreReturnCode: true, // May already be installed
-    });
-    let stdout = '';
-    let stderr = '';
-    const options = {
         listeners: {
-            stdout: (data) => {
-                stdout += data.toString();
-            },
             stderr: (data) => {
-                stderr += data.toString();
+                installStderr += data.toString();
             },
         },
-        ignoreReturnCode: true,
-    };
-    const exitCode = await exec.exec('nix-prefetch-github', [owner, repo, '--rev', rev], options);
-    if (exitCode !== 0) {
-        // Extract the last meaningful lines from stderr (skip download progress)
-        const stderrLines = stderr.split('\n');
-        const errorLines = stderrLines
-            .filter((line) => line.includes('error') ||
-            line.includes('Error') ||
-            line.includes('failed') ||
-            line.includes('Unable'))
-            .slice(-5)
-            .join('\n');
-        const errorMessage = errorLines || stderrLines.slice(-10).join('\n');
-        throw new Error(`nix-prefetch-github failed with exit code ${String(exitCode)}: ${errorMessage}`);
+    });
+    // Log installation issues for debugging (already-installed warnings are expected)
+    if (installExitCode !== 0 && !/already.?installed/i.test(installStderr)) {
+        const stderrMessage = installStderr.trim() || '(no output)';
+        core.warning(`nix profile add reported issues (exit code ${String(installExitCode)}): ${stderrMessage}`);
     }
+    core.debug('Running nix-prefetch-github');
+    const result = await withRetry(async () => {
+        let stdout = '';
+        let stderr = '';
+        const options = {
+            listeners: {
+                stdout: (data) => {
+                    stdout += data.toString();
+                },
+                stderr: (data) => {
+                    stderr += data.toString();
+                },
+            },
+            ignoreReturnCode: true,
+        };
+        const exitCode = await exec.exec('nix-prefetch-github', [owner, repo, '--rev', rev], options);
+        if (exitCode !== 0) {
+            // Extract the last meaningful lines from stderr (skip download progress)
+            const stderrLines = stderr.split('\n');
+            const errorLines = stderrLines
+                .filter((line) => /error|failed|unable/i.test(line))
+                .slice(-5)
+                .join('\n');
+            const errorMessage = errorLines || stderrLines.slice(-10).join('\n');
+            throw new Error(`nix-prefetch-github failed with exit code ${String(exitCode)}: ${errorMessage}`);
+        }
+        return stdout;
+    }, {
+        maxAttempts: 3,
+        operationName: 'nix-prefetch-github',
+        shouldRetry: isTransientError,
+    });
+    core.debug('Parsing nix-prefetch-github output');
     let parsed;
     try {
-        parsed = JSON.parse(stdout);
+        parsed = JSON.parse(result);
     }
     catch {
-        throw new Error(`Failed to parse nix-prefetch-github output: ${stdout}`);
+        throw new Error(`Failed to parse nix-prefetch-github output: ${result}`);
     }
     // Validate the parsed object has required fields
-    if (typeof parsed !== 'object' ||
-        parsed === null ||
-        !('hash' in parsed) ||
-        typeof parsed.hash !== 'string' ||
-        parsed.hash === '') {
-        throw new Error('nix-prefetch-github did not return a hash');
+    if (!isPrefetchResult(parsed)) {
+        throw new Error(`nix-prefetch-github returned invalid output: expected object with non-empty "hash" string field`);
     }
+    core.debug(`Successfully fetched hash: ${parsed.hash.substring(0, 20)}...`);
     return parsed.hash;
 }
 
@@ -33664,13 +33908,14 @@ var github = __nccwpck_require__(3228);
 
 
 
+
 /**
- * Generates the PR body content.
+ * Generates the PR body content with summary, changes, and any required actions.
  *
- * @param packageName - Name of the package
- * @param version - New version
- * @param options - PR options
- * @returns The formatted PR body
+ * @param packageName - Name of the package being updated
+ * @param version - New version of the package
+ * @param options - PR options controlling content generation
+ * @returns Formatted PR body in markdown
  */
 function generatePRBody(packageName, version, options = {}) {
     const changes = ['- Updated `version` field'];
@@ -33713,6 +33958,7 @@ If dependencies haven't changed, the existing \`vendorHash\` should still work.
  * @param branchName - Branch name for the PR
  * @param packageName - Name of the package being updated
  * @param version - New version of the package
+ * @param baseBranch - Base branch to create PR against (default: 'main')
  * @param options - Optional PR settings
  * @returns Result containing PR URL, number, and whether it was created
  * @throws GitHubAPIError if PR creation/update fails
@@ -33723,10 +33969,11 @@ If dependencies haven't changed, the existing \`vendorHash\` should still work.
  *   'ghp_token',
  *   'chore/my-package',
  *   'my-package',
- *   '1.0.0'
+ *   '1.0.0',
+ *   'main'
  * );
  */
-async function createOrUpdatePR(targetRepo, token, branchName, packageName, version, options = {}) {
+async function createOrUpdatePR(targetRepo, token, branchName, packageName, version, baseBranch = 'main', options = {}) {
     const octokit = github.getOctokit(token);
     const [owner, repo] = targetRepo.split('/');
     if (owner === undefined || repo === undefined) {
@@ -33734,13 +33981,19 @@ async function createOrUpdatePR(targetRepo, token, branchName, packageName, vers
     }
     const title = `bump ${packageName} version to ${version}`;
     const body = generatePRBody(packageName, version, options);
+    core.debug(`Creating/updating PR for ${packageName} v${version} against ${baseBranch}`);
     try {
         // Check for existing PR from this branch
-        const { data: existingPRs } = await octokit.rest.pulls.list({
+        core.debug(`Checking for existing PR from branch ${branchName}`);
+        const { data: existingPRs } = await withRetry(async () => octokit.rest.pulls.list({
             owner,
             repo,
             head: `${owner}:${branchName}`,
             state: 'open',
+        }), {
+            maxAttempts: 3,
+            operationName: 'list PRs',
+            shouldRetry: isTransientError,
         });
         if (existingPRs.length > 0) {
             // Update existing PR
@@ -33749,12 +34002,17 @@ async function createOrUpdatePR(targetRepo, token, branchName, packageName, vers
                 throw new GitHubAPIError('Unexpected: existing PR list is empty after length check');
             }
             core.info(`Found existing PR #${String(existingPR.number)}, updating...`);
-            await octokit.rest.pulls.update({
+            core.debug(`Updating PR #${String(existingPR.number)} title and body`);
+            await withRetry(async () => octokit.rest.pulls.update({
                 owner,
                 repo,
                 pull_number: existingPR.number,
                 title,
                 body,
+            }), {
+                maxAttempts: 3,
+                operationName: 'update PR',
+                shouldRetry: isTransientError,
             });
             return {
                 url: existingPR.html_url,
@@ -33763,13 +34021,18 @@ async function createOrUpdatePR(targetRepo, token, branchName, packageName, vers
             };
         }
         // Create new PR
-        const { data: newPR } = await octokit.rest.pulls.create({
+        core.debug(`Creating new PR with head=${branchName} and base=${baseBranch}`);
+        const { data: newPR } = await withRetry(async () => octokit.rest.pulls.create({
             owner,
             repo,
             title,
             body,
             head: branchName,
-            base: 'main',
+            base: baseBranch,
+        }), {
+            maxAttempts: 3,
+            operationName: 'create PR',
+            shouldRetry: isTransientError,
         });
         return {
             url: newPR.html_url,
@@ -33833,13 +34096,16 @@ function formatBranchName(packageName) {
  * Orchestrates the entire update workflow.
  */
 async function run() {
+    let repoPath;
     try {
         // Step 1: Parse and validate inputs
+        core.debug('Parsing action inputs');
         const inputs = parseInputs();
         core.info(`Updating package: ${inputs.packageName} to version ${inputs.version}`);
+        core.debug(`Base branch: ${inputs.baseBranch}`);
         // Step 2: Clone target repository
         core.info(`Cloning repository: ${inputs.targetRepo}`);
-        const repoPath = await cloneRepository(inputs.targetRepo, inputs.githubToken);
+        repoPath = await cloneRepository(inputs.targetRepo, inputs.githubToken);
         core.info(`Repository cloned to: ${repoPath}`);
         // Step 3: Read and parse the Nix file
         const nixFilePath = external_path_.join(repoPath, 'pkgs', inputs.packageName, 'default.nix');
@@ -33853,6 +34119,7 @@ async function run() {
         }
         const nixData = parseNixFile(nixContent);
         core.info(`Current version: ${nixData.version}, rev: ${nixData.rev}`);
+        core.debug(`Nix file data: owner=${nixData.owner}, repo=${nixData.repo}, revUsesVersion=${String(nixData.revUsesVersion)}, hasVendorHash=${String(nixData.hasVendorHash)}`);
         if (nixData.revUsesVersion) {
             core.info('Detected rev uses ${version} interpolation - will skip rev update');
         }
@@ -33871,6 +34138,7 @@ async function run() {
         core.info(`New hash: ${newHash}`);
         // Step 5: Update the Nix file
         const cleanVersion = stripVersionPrefix(inputs.version);
+        core.debug(`Clean version (without prefix): ${cleanVersion}`);
         const updatedContent = updateNixFile(nixContent, {
             version: cleanVersion,
             rev: inputs.version, // Keep original (with or without v)
@@ -33881,7 +34149,7 @@ async function run() {
         // Step 6: Create branch, commit, and push
         const branchName = formatBranchName(inputs.packageName);
         core.info(`Creating branch: ${branchName}`);
-        await createBranch(repoPath, branchName);
+        await createBranch(repoPath, branchName, inputs.baseBranch);
         // Build commit message based on what was updated
         const commitChanges = [`- Updated version to ${cleanVersion}`];
         if (!nixData.revUsesVersion) {
@@ -33895,7 +34163,7 @@ ${commitChanges.join('\n')}`;
         core.info(`Changes pushed to branch: ${branchName}`);
         // Step 7: Create or update PR
         core.info('Creating/updating pull request...');
-        const pr = await createOrUpdatePR(inputs.targetRepo, inputs.githubToken, branchName, inputs.packageName, cleanVersion, {
+        const pr = await createOrUpdatePR(inputs.targetRepo, inputs.githubToken, branchName, inputs.packageName, cleanVersion, inputs.baseBranch, {
             hasVendorHash: nixData.hasVendorHash,
             revUsesVersion: nixData.revUsesVersion,
         });
@@ -33912,6 +34180,13 @@ ${commitChanges.join('\n')}`;
     }
     catch (error) {
         handleError(error);
+    }
+    finally {
+        // Clean up temporary directory
+        if (repoPath !== undefined && repoPath !== '') {
+            core.debug('Cleaning up temporary directory');
+            await cleanupRepository(repoPath);
+        }
     }
 }
 /**
@@ -33948,5 +34223,7 @@ function handleError(error) {
 // Run the action
 void run();
 
+var __webpack_exports__handleError = __webpack_exports__.H;
+export { __webpack_exports__handleError as handleError };
 
 //# sourceMappingURL=index.js.map
