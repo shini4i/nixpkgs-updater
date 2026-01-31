@@ -73,5 +73,11 @@ tasks:
 
   release:
     desc: Push tags to trigger release workflow
+    preconditions:
+      - sh: '[ "$(git branch --show-current)" = "main" ]'
+        msg: "Must be on 'main' branch to release"
+      - sh: 'git describe --tags --exact-match HEAD 2>/dev/null'
+        msg: "HEAD must be tagged (run bump:patch/minor/major first)"
+    prompt: "Push release to origin? This will trigger the CI release workflow."
     cmds:
       - git push origin main --follow-tags
