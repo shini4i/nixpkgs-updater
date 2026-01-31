@@ -1,6 +1,6 @@
 {
   "name": "nixpkgs-updater",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GitHub Action to update Nix packages in a centralized repository",
   "main": "dist/index.js",
   "type": "module",
