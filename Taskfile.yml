@@ -1,0 +1,77 @@
+version: "3"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  install:
+    desc: Install npm dependencies
+    cmds:
+      - npm ci
+
+  build:
+    desc: Build the project
+    cmds:
+      - npm run build
+
+  test:
+    desc: Run tests
+    cmds:
+      - npm run test
+
+  test:watch:
+    desc: Run tests in watch mode
+    cmds:
+      - npm run test:watch
+
+  test:coverage:
+    desc: Run tests with coverage
+    cmds:
+      - npm run test:coverage
+
+  lint:
+    desc: Run linter
+    cmds:
+      - npm run lint
+
+  lint:fix:
+    desc: Run linter with auto-fix
+    cmds:
+      - npm run lint:fix
+
+  format:
+    desc: Format code
+    cmds:
+      - npm run format
+
+  format:check:
+    desc: Check code formatting
+    cmds:
+      - npm run format:check
+
+  all:
+    desc: Run all checks (lint, format, test, build)
+    cmds:
+      - npm run all
+
+  bump:patch:
+    desc: Bump patch version (x.x.X)
+    cmds:
+      - npm version patch
+
+  bump:minor:
+    desc: Bump minor version (x.X.0)
+    cmds:
+      - npm version minor
+
+  bump:major:
+    desc: Bump major version (X.0.0)
+    cmds:
+      - npm version major
+
+  release:
+    desc: Push tags to trigger release workflow
+    cmds:
+      - git push origin main --follow-tags

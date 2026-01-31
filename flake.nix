@@ -22,13 +22,17 @@
 
             # Git for operations
             git
+
+            # Task runner
+            go-task
           ];
 
           shellHook = ''
             echo "nixpkgs-updater development environment"
             echo "Node.js: $(node --version)"
             echo "npm: $(npm --version)"
-            echo "nix-prefetch-github: available"
+            echo ""
+            echo "Run 'task' to see available commands"
           '';
         };
       }
