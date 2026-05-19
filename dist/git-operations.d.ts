@@ -11,13 +11,19 @@
  */
 export declare function cloneRepository(targetRepo: string, token: string): Promise<string>;
 /**
- * Creates or checks out a branch in the repository.
- * If the branch exists remotely, it will be checked out and reset to the base branch.
- * Otherwise, a new branch will be created.
+ * Creates or resets a local branch to the tip of the base branch.
+ *
+ * Uses `git checkout -B <branch> origin/<baseBranch>`, which creates the
+ * branch if it doesn't exist or resets it to `origin/<baseBranch>` if it does.
+ * The remote branch (if any) is fetched first so the lease check in a later
+ * force-push has an up-to-date remote-tracking ref to compare against, but its
+ * commits are never merged into the local branch — important for shallow
+ * clones, where the remote branch's history may have no common ancestor with
+ * the locally available base.
  *
  * @param repoPath - Path to the repository
- * @param branchName - Name of the branch to create or checkout
- * @param baseBranch - Base branch to reset to if branch exists (default: 'main')
+ * @param branchName - Name of the branch to create or reset
+ * @param baseBranch - Base branch to branch off of (default: 'main')
  * @throws GitOperationError if branch operations fail
  *
  * @example
@@ -41,6 +47,9 @@ export declare function stageChanges(repoPath: string): Promise<void>;
 export declare function createCommit(repoPath: string, message: string): Promise<void>;
 /**
  * Pushes a branch to the remote repository with force-with-lease.
+ *
+ * Captures git's stderr so failures surface the real reason (permissions,
+ * branch protection, etc.) instead of a bare exit code.
  *
  * @param repoPath - Path to the repository
  * @param branchName - Name of the branch to push

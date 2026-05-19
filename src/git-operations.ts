@@ -82,13 +82,19 @@ export async function cloneRepository(targetRepo: string, token: string): Promis
 }
 
 /**
- * Creates or checks out a branch in the repository.
- * If the branch exists remotely, it will be checked out and reset to the base branch.
- * Otherwise, a new branch will be created.
+ * Creates or resets a local branch to the tip of the base branch.
+ *
+ * Uses `git checkout -B <branch> origin/<baseBranch>`, which creates the
+ * branch if it doesn't exist or resets it to `origin/<baseBranch>` if it does.
+ * The remote branch (if any) is fetched first so the lease check in a later
+ * force-push has an up-to-date remote-tracking ref to compare against, but its
+ * commits are never merged into the local branch — important for shallow
+ * clones, where the remote branch's history may have no common ancestor with
+ * the locally available base.
  *
  * @param repoPath - Path to the repository
- * @param branchName - Name of the branch to create or checkout
- * @param baseBranch - Base branch to reset to if branch exists (default: 'main')
+ * @param branchName - Name of the branch to create or reset
+ * @param baseBranch - Base branch to branch off of (default: 'main')
  * @throws GitOperationError if branch operations fail
  *
  * @example
@@ -99,43 +105,48 @@ export async function createBranch(
   branchName: string,
   baseBranch = 'main'
 ): Promise<void> {
-  core.debug(`Creating/checking out branch: ${branchName} (base: ${baseBranch})`);
+  core.debug(`Creating/resetting branch: ${branchName} (base: ${baseBranch})`);
 
-  // Fetch to check if branch exists remotely
+  // Ensure origin/<baseBranch> exists as a remote-tracking ref. A --depth 1
+  // clone is implicitly --single-branch and only fetches the default branch,
+  // so non-default base branches must be fetched explicitly. Using a full
+  // refspec ensures the remote-tracking ref is created, not just FETCH_HEAD.
+  try {
+    await exec.exec(
+      'git',
+      ['fetch', '--depth', '1', 'origin', `${baseBranch}:refs/remotes/origin/${baseBranch}`],
+      {
+        cwd: repoPath,
+        silent: true,
+      }
+    );
+  } catch (error) {
+    throw new GitOperationError(
+      `Failed to fetch base branch ${baseBranch}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  // Fetch the remote update branch (if any) so --force-with-lease has a
+  // current remote-tracking ref to compare against. Allowed to fail when
+  // the branch doesn't exist remotely yet.
   await exec.exec('git', ['fetch', 'origin', branchName], {
-    cwd: repoPath,
-    ignoreReturnCode: true, // Branch may not exist
-    silent: true,
-  });
-
-  // Try to checkout existing branch
-  const checkoutResult = await exec.exec('git', ['checkout', branchName], {
     cwd: repoPath,
     ignoreReturnCode: true,
     silent: true,
   });
 
-  if (checkoutResult !== 0) {
-    // Branch doesn't exist, create it
-    core.debug(`Branch ${branchName} does not exist, creating new branch`);
-    try {
-      await exec.exec('git', ['checkout', '-b', branchName], {
-        cwd: repoPath,
-        silent: true,
-      });
-    } catch (error) {
-      throw new GitOperationError(
-        `Failed to create branch ${branchName}: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  } else {
-    // Branch exists, reset to base branch to ensure we have the latest
-    core.debug(`Branch ${branchName} exists, resetting to origin/${baseBranch}`);
-    await exec.exec('git', ['reset', '--hard', `origin/${baseBranch}`], {
+  // Create or reset the local branch off the base branch tip. This avoids
+  // pulling in the remote branch's divergent history, which in a shallow
+  // clone has no common ancestor with the locally available base.
+  try {
+    await exec.exec('git', ['checkout', '-B', branchName, `origin/${baseBranch}`], {
       cwd: repoPath,
-      ignoreReturnCode: true,
       silent: true,
     });
+  } catch (error) {
+    throw new GitOperationError(
+      `Failed to create branch ${branchName}: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
@@ -183,30 +194,31 @@ export async function createCommit(repoPath: string, message: string): Promise<v
 /**
  * Pushes a branch to the remote repository with force-with-lease.
  *
+ * Captures git's stderr so failures surface the real reason (permissions,
+ * branch protection, etc.) instead of a bare exit code.
+ *
  * @param repoPath - Path to the repository
  * @param branchName - Name of the branch to push
  * @throws GitOperationError if push fails
  */
 export async function pushBranch(repoPath: string, branchName: string): Promise<void> {
   core.debug(`Pushing branch ${branchName} with force-with-lease`);
+  let result;
   try {
-    await withRetry(
-      async () => {
-        await exec.exec('git', ['push', '--force-with-lease', 'origin', branchName], {
-          cwd: repoPath,
-          silent: true,
-        });
-      },
-      {
-        maxAttempts: 3,
-        operationName: 'git push',
-        shouldRetry: isTransientError,
-      }
-    );
+    result = await exec.getExecOutput('git', ['push', '--force-with-lease', 'origin', branchName], {
+      cwd: repoPath,
+      silent: true,
+      ignoreReturnCode: true,
+    });
   } catch (error) {
     throw new GitOperationError(
       `Failed to push to ${branchName}: ${error instanceof Error ? error.message : String(error)}`
     );
+  }
+  if (result.exitCode !== 0) {
+    const detail =
+      result.stderr.trim() || result.stdout.trim() || `exit code ${String(result.exitCode)}`;
+    throw new GitOperationError(`Failed to push to ${branchName}: ${detail}`);
   }
 }
 
