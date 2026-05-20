@@ -32485,9 +32485,14 @@ async function createBranch(repoPath, branchName, baseBranch = 'main') {
         throw new GitOperationError(`Failed to fetch base branch ${baseBranch}: ${error instanceof Error ? error.message : String(error)}`);
     }
     // Fetch the remote update branch (if any) so --force-with-lease has a
-    // current remote-tracking ref to compare against. Allowed to fail when
-    // the branch doesn't exist remotely yet.
-    await exec.exec('git', ['fetch', 'origin', branchName], {
+    // current remote-tracking ref to compare against. The full refspec ensures
+    // origin/<branchName> is created/updated even in a --single-branch clone
+    // where the configured fetch refspec only covers the default branch;
+    // without it, a bare `git fetch origin <branch>` updates FETCH_HEAD only,
+    // leaving the lease check with stale/missing info and causing the push to
+    // be rejected with "stale info". Allowed to fail when the branch doesn't
+    // exist remotely yet (first run for this package).
+    await exec.exec('git', ['fetch', '--depth', '1', 'origin', `${branchName}:refs/remotes/origin/${branchName}`], {
         cwd: repoPath,
         ignoreReturnCode: true,
         silent: true,

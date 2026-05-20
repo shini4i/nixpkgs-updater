@@ -153,12 +153,12 @@ describe('createBranch', () => {
     );
   });
 
-  it('fetches update branch with ignoreReturnCode (may not exist remotely)', async () => {
+  it('fetches update branch with full refspec so origin/<branch> is a tracking ref', async () => {
     await createBranch('/tmp/repo', 'feature-branch');
 
     expect(mockExec).toHaveBeenCalledWith(
       'git',
-      ['fetch', 'origin', 'feature-branch'],
+      ['fetch', '--depth', '1', 'origin', 'feature-branch:refs/remotes/origin/feature-branch'],
       expect.objectContaining({ ignoreReturnCode: true, silent: true })
     );
   });
